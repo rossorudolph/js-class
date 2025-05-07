@@ -128,33 +128,28 @@
           ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⢸⣿⣿⣿⣿⣿⠟⠀⠀⠀⠀⠀⠀⠀
           ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠛⠻⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠁⠈⠉⠉⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀
           ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⠛⠉⠉⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀         
-          <img src="https://www.buddy-icons.info/img/icon/40529.gif" alt="A fun GIF" onclick="displayAsciiArt()" />
-          <pre id="ascii-art" style="display: none;"></pre>
-        </pre>
-        <script>
-          let clickCount = 0;
-
-          function displayAsciiArt() {
-            const asciiArt1 = document.getElementById('ascii-art');
-            const asciiArt2 = document.getElementById('ascii-art-2');
-            
-            if (clickCount === 0) {
-              asciiArt1.style.display = 'block';
-              asciiArt2.style.display = 'none';
-            } else if (clickCount === 1) {
-              asciiArt1.style.display = 'none';
-              asciiArt2.style.display = 'block';
+          <img src="https://www.buddy-icons.info/img/icon/40529.gif" alt="A fun GIF" onclick="toggleAsciiArt()" />
+          <script>
+            let clickCount = 0;
+          
+            function toggleAsciiArt() {
+              const asciiArt1 = document.getElementById('ascii-art');
+              const asciiArt2 = document.getElementById('ascii-art-2');
+          
+              if (clickCount === 0) {
+                asciiArt1.style.display = 'none';
+                asciiArt2.style.display = 'block';
+              } else {
+                asciiArt1.style.display = 'block';
+                asciiArt2.style.display = 'none';
+              }
+          
+              clickCount = (clickCount + 1) % 2;
             }
-            
-            clickCount = (clickCount + 1) % 2;
-          }
-        </script>
-        <script>
-          function displayAsciiArt() {
-            const asciiArt = document.getElementById('ascii-art');
-            asciiArt.style.display = 'block';
-          }
-        </script>
+          
+            const toggleButton = document.getElementById('toggleButton');
+            toggleButton.addEventListener('click', toggleAsciiArt);
+          </script>
       </li>
     </ul>
   </body>
