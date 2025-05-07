@@ -1,0 +1,49 @@
+body, html {
+  margin: 0;
+  padding: 0;
+}
+
+/*
+ * expand the main element to take up the entire viewport
+ */
+main {
+  width: 100vw;
+  height: 100vh;
+}
+
+/*
+ * remove margin from h1 because otherwise they add height to the main
+ * element, causing scrollbars to appear
+ */
+h1 {
+  margin: 0;
+  padding: 10px;
+  text-align: center;
+}
+
+/* fill the viewport, absolute position in top left corner */
+#poem {
+  width: 100vw;
+  height: 100vh;
+  position: absolute;
+  top: 0px;
+  left: 0px;
+}
+
+/*
+ * set positioning style and color
+ * note that top: and left: are not set here because
+ * we handle them in the JavaScript file, but usually
+ * you would set them (or bottom: or right: instead).
+ */
+.rain {
+  position: absolute;
+  color: blue;
+  margin: 0;
+  padding: 0;
+  
+  /* turn off text selection and related highlighting */
+  -webkit-user-select: none; /* Safari */
+  -ms-user-select: none; /* IE 10 and IE 11 */
+  user-select: none; /* Standard syntax */
+}

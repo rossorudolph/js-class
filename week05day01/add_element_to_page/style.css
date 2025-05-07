@@ -1,0 +1,18 @@
+body {
+  font-family: helvetica, arial, sans-serif;
+  margin: 2em;
+}
+
+h1 {
+  font-style: italic;
+  color: #373fff;
+}
+
+
+.pinkBlock {
+	width: 200px;
+	height: 100px;
+	margin: 10px;
+	display: inline-block;
+	background: hotpink;
+}

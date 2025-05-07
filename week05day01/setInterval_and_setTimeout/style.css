@@ -1,0 +1,8 @@
+
+.colorBlock {
+  height: 200px;
+  width: 100px;
+  margin: 10px;
+  display: inline-block;
+  background: linear-gradient(limegreen, yellow);
+}

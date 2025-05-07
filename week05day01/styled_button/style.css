@@ -1,0 +1,30 @@
+body {
+  font-family: helvetica, arial, sans-serif;
+  margin: 2em;
+}
+
+h1 {
+  font-style: italic;
+  color: #373fff;
+}
+
+#nyan {
+	display: none;
+	margin-top: 20px;
+}
+
+.flatButton {
+	background: hotpink;
+	color: white;
+	font-family: helvetica, arial, sans-serif;
+	font-weight: bold;
+	font-size: 20px;
+	cursor: pointer;
+	padding: 20px;
+	display: inline-block;
+	border: none;
+}
+
+.flatButton:hover {
+	background: #ff0080;
+}
