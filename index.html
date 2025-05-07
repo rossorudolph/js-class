@@ -22,7 +22,6 @@
     <script src="/script.js" defer></script>
   </head>
   <body>
-    <button onclick="updateClickCount()"> Click me! </button>
 
     <h2>Week 5, Day 1: So Manipulative!</h2>
 
@@ -49,7 +48,46 @@
         <a href="week05day01/setInterval_and_setTimeout/">Delay, automate, and repeat actions with setTimeout or setInterval</a>
       </li>
       <li>
-        <img src="https://www.buddy-icons.info/img/icon/40529.gif" alt="A fun GIF" />
+        <img src="https://www.buddy-icons.info/img/icon/40529.gif" alt="A fun GIF" onclick="displayAsciiArt()" />
+
+        <pre id="ascii-art" style="display: none;">
+
+          #  CHECK OUT MY ART !         ,.--------._                                            #
+          #                           /            ''.                                         #
+          #                         ,'                \     |"\                /\          /\  #
+          #                /"|     /                   \    |__"              ( \\        // ) #
+          #               "_"|    /           z#####z   \  //                  \ \\      // /  #
+          #                 \\  #####        ##------".  \//                    \_\\||||//_/   #
+          #                  \\/-----\     /          ".  \                      \/ _  _ \     #
+          #                   \|      \   |   ,,--..       \                    \/|(O)(O)|     #
+          #                   | ,.--._ \  (  | ##   \)      \                  \/ |      |     #
+          #                   |(  ##  )/   \ `-....-//       |///////////////_\/  \      /     #
+          #                     '--'."      \                \              //     |____|      #
+          #                  /'    /         ) --.            \            ||     /      \     #
+          #               ,..|     \.________/    `-..         \   \       \|     \ 0  0 /     #
+          #            _,##/ |   ,/   /   \           \         \   \       U    / \_//_/      #
+          #          :###.-  |  ,/   /     \        /' ""\      .\        (     /              #
+          #         /####|   |   (.___________,---',/    |       |\=._____|  |_/               #
+          #        /#####|   |     \__|__|__|__|_,/             |####\    |  ||                #
+          #       /######\   \      \__________/                /#####|   \  ||                #
+          #      /|#######`. `\                                /#######\   | ||                #
+          #     /++\#########\  \                      _,'    _/#########\ | ||                #
+          #    /++++|#########|  \      .---..       ,/      ,'##########.\|_||  Donkey By     #
+          #   //++++|#########\.  \.              ,-/      ,'########,+++++\\_\\ Hard'96       #
+          #  /++++++|##########\.   '._        _,/       ,'######,''++++++++\                  #
+          # |+++++++|###########|       -----."        _'#######' +++++++++++\                 #
+          # |+++++++|############\.     \\     //      /#######/++++ S@yaN +++\                #
+          #      ________________________\\___//______________________________________         #
+          
+          
+        </pre>
+
+        <script>
+          function displayAsciiArt() {
+            const asciiArt = document.getElementById('ascii-art');
+            asciiArt.style.display = 'block';
+          }
+        </script>
       </li>
     </ul>
   </body>
