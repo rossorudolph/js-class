@@ -1,0 +1,19 @@
+.craft {
+    float: left;
+    display: inline-block;
+}
+
+#craft-iss {
+    background-color: black;
+    color: cyan;
+}
+
+#craft-tiangong {
+    background-color: red;
+    color: yellow;
+}
+
+.astro {
+    display: inline-block;
+    padding: 10px;
+}
