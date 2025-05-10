@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SF 911 Dispatch Call Visualization</title>
+  <title>SF 911 Visualization</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/addons/p5.sound.min.js"></script>
   <style>
@@ -13,7 +13,6 @@
       overflow: hidden;
       background-color: #000;
     }
-    
     canvas {
       display: block;
       position: absolute;
@@ -22,35 +21,257 @@
       width: 100%;
       height: 100%;
     }
-    
-    /* Hide cursor after 3 seconds of inactivity */
     .cursor-hidden {
       cursor: none;
     }
   </style>
 </head>
 <body>
-  <!-- No text overlays or UI elements for a more abstract experience -->
-  
-  <!-- Make sure the sketch is loaded after the HTML structure -->
-  <script src="sf-911-particle-vis.js"></script>
-  
-  <!-- Script to hide cursor after inactivity -->
   <script>
-    let timeout;
-    function hideCursor() {
-      document.body.classList.add('cursor-hidden');
+    /* 
+     * SF 911 Visualization - Working Version
+     * Based on the smoke particles example with soft pastel colors
+     */
+    
+    // Global variables
+    let mic;
+    let particleSystems = [];
+    let callTypes = {};
+    
+    // Performance settings
+    let maxParticleSystems = 15;
+    let maxParticlesPerSystem = 40;
+    
+    // SF map boundaries (for realism)
+    const SF_BOUNDS = {
+      min_lon: -122.52,
+      max_lon: -122.36,
+      min_lat: 37.70,
+      max_lat: 37.83
+    };
+    
+    function setup() {
+      createCanvas(windowWidth, windowHeight);
+      background(0);
+      
+      // Setup microphone
+      mic = new p5.AudioIn();
+      mic.start();
+      
+      // Create initial particle systems
+      createInitialParticleSystems();
+      
+      // Hide cursor after inactivity
+      setTimeout(() => {
+        document.body.classList.add('cursor-hidden');
+      }, 3000);
     }
     
-    function resetCursor() {
-      document.body.classList.remove('cursor-hidden');
-      clearTimeout(timeout);
-      timeout = setTimeout(hideCursor, 3000);
+    function draw() {
+      background(0, 25); // Semi-transparent background for trails
+      
+      // Update wind based on mic input
+      let micLevel = mic.getLevel() || 0.01;
+      let dx = map(micLevel, 0, 0.1, -0.05, 0.05);
+      let wind = createVector(dx, 0);
+      
+      // Occasionally add new particle systems
+      if (frameCount % 90 === 0 && particleSystems.length < maxParticleSystems) {
+        addRandomParticleSystem();
+      }
+      
+      // Run all particle systems
+      for (let i = particleSystems.length - 1; i >= 0; i--) {
+        let ps = particleSystems[i];
+        ps.applyForce(wind);
+        ps.run();
+        
+        // Add new particles based on call priority, but limit the number
+        let particleRate = 1; // Default rate
+        if (ps.priority === 'A') particleRate = 2;
+        else if (ps.priority === 'B') particleRate = 1;
+        
+        // Only add particles if under the per-system limit
+        if (ps.particles.length < maxParticlesPerSystem) {
+          for (let j = 0; j < particleRate; j++) {
+            ps.addParticle();
+          }
+        }
+        
+        // Remove systems for closed calls
+        if (ps.isDead()) {
+          particleSystems.splice(i, 1);
+        }
+      }
     }
     
-    document.addEventListener('mousemove', resetCursor);
-    document.addEventListener('keydown', resetCursor);
-    timeout = setTimeout(hideCursor, 3000);
+    function createInitialParticleSystems() {
+      // Create several initial particle systems
+      for (let i = 0; i < 10; i++) {
+        addRandomParticleSystem();
+      }
+    }
+    
+    function addRandomParticleSystem() {
+      // Random position on screen
+      let x = random(width);
+      let y = random(height);
+      
+      // Call types for coloring
+      let callTypeList = ["246", "415", "602", "915", "917", "219"];
+      let callType = random(callTypeList);
+      
+      // Priority levels
+      let priorityList = ['A', 'B', 'C'];
+      let priority = random(priorityList);
+      
+      // Create new particle system
+      let ps = new ParticleSystem(createVector(x, y));
+      ps.callType = callType;
+      ps.priority = priority;
+      
+      // Set lifespan based on priority
+      if (priority === 'A') ps.lifespan = 180;
+      else if (priority === 'B') ps.lifespan = 150;
+      else ps.lifespan = 120;
+      
+      particleSystems.push(ps);
+    }
+    
+    function windowResized() {
+      resizeCanvas(windowWidth, windowHeight);
+    }
+    
+    // Keyboard controls
+    function keyPressed() {
+      // Space to pause/play
+      if (key === ' ') {
+        noLoop();
+      } else if (key === 'r' || key === 'R') {
+        loop();
+      }
+    }
+    
+    function getColorForCallType(callTypeCode) {
+      // Pastel color palette
+      switch(callTypeCode) {
+        case "246": // SHOOTING
+          return color(255, 182, 193); // Light pink
+        case "917": // SHOTS FIRED
+          return color(255, 218, 185); // Peach
+        case "219": // ROBBERY
+          return color(255, 255, 224); // Light yellow
+        case "415": // DISTURBING THE PEACE
+          return color(204, 255, 204); // Mint green
+        case "602": // TRESPASSING
+          return color(173, 216, 230); // Light blue
+        case "915": // SUSPICIOUS PERSON
+          return color(221, 160, 221); // Plum
+        default:
+          return color(230, 230, 250); // Lavender
+      }
+    }
+    
+    //========= PARTICLE SYSTEM CLASS ===========
+    let ParticleSystem = function(origin) {
+      this.origin = origin.copy();
+      this.particles = [];
+      this.callType = "unknown";
+      this.priority = "C";
+      this.lifespan = 120;
+      this.age = 0;
+    };
+    
+    ParticleSystem.prototype.run = function() {
+      this.age++;
+      
+      let len = this.particles.length;
+      for (let i = len - 1; i >= 0; i--) {
+        let particle = this.particles[i];
+        particle.callType = this.callType; // Pass call type for coloring
+        particle.run();
+        
+        if (particle.isDead()) {
+          this.particles.splice(i, 1);
+        }
+      }
+    };
+    
+    ParticleSystem.prototype.applyForce = function(dir) {
+      let len = this.particles.length;
+      for(let i = 0; i < len; ++i){
+        this.particles[i].applyForce(dir);
+      }
+    };
+    
+    ParticleSystem.prototype.addParticle = function() {
+      this.particles.push(new Particle(this.origin, this.callType));
+    };
+    
+    ParticleSystem.prototype.isDead = function() {
+      return this.age > this.lifespan;
+    };
+    
+    //========= PARTICLE CLASS ===========
+    let Particle = function (pos, callType) {
+      this.loc = pos.copy();
+      
+      // Gentler, smaller movements
+      let vx = randomGaussian() * 0.2;
+      let vy = randomGaussian() * 0.2 - 0.8;
+      
+      this.vel = createVector(vx, vy);
+      this.acc = createVector();
+      this.lifespan = 100.0;
+      this.callType = callType || "unknown";
+      this.radius = random(10, 20);
+    };
+    
+    Particle.prototype.run = function() {
+      this.update();
+      this.render();
+    };
+    
+    Particle.prototype.render = function() {
+      // Apply color based on call type
+      let particleColor = getColorForCallType(this.callType);
+      
+      // Calculate size based on lifespan
+      let size = map(this.lifespan, 0, 100, 0, 1) * this.radius;
+      
+      // Draw soft circle
+      noStroke();
+      
+      // Outer glow
+      for (let i = 4; i > 0; i--) {
+        let alpha = map(i, 0, 4, 0, this.lifespan);
+        fill(red(particleColor), green(particleColor), blue(particleColor), alpha * 0.2);
+        ellipse(this.loc.x, this.loc.y, size * i, size * i);
+      }
+      
+      // Core
+      fill(red(particleColor), green(particleColor), blue(particleColor), this.lifespan);
+      ellipse(this.loc.x, this.loc.y, size, size);
+    };
+    
+    Particle.prototype.applyForce = function(f) {
+      this.acc.add(f);
+    };
+    
+    Particle.prototype.isDead = function () {
+      if (this.lifespan <= 0.0) {
+        return true;
+      } else {
+        return false;
+      }
+    };
+    
+    Particle.prototype.update = function() {
+      this.vel.add(this.acc);
+      this.loc.add(this.vel);
+      this.lifespan -= 3.5; // Faster fade-out
+      this.acc.mult(0);
+    };
   </script>
 </body>
 </html>
