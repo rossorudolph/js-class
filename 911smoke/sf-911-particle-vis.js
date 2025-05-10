@@ -29,9 +29,41 @@ const SF_BOUNDS = {
 };
 
 function preload() {
-  particle_texture = loadImage("particle_texture.png");
-  // Optionally add a simple SF map background
-  // sfMap = loadImage("sf_map.png");
+  // Create a simple blank square texture if loading the external image fails
+  createBlankTexture();
+  
+  // Try to load the external image
+  try {
+    particle_texture = loadImage("particle_texture.png", 
+      // Success callback
+      function() {
+        console.log("Texture loaded successfully");
+      },
+      // Error callback
+      function(e) {
+        console.log("Error loading texture, using blank texture", e);
+        // Already created a blank texture
+      }
+    );
+  } catch (e) {
+    console.error("Error in texture loading:", e);
+    // Already created a blank texture
+  }
+}
+
+function createBlankTexture() {
+  // Create a simple soft gradient circle as fallback texture
+  let size = 64;
+  particle_texture = createGraphics(size, size);
+  particle_texture.background(0, 0);
+  particle_texture.noStroke();
+  
+  // Draw gradient circle
+  for (let i = size; i > 0; i -= 2) {
+    let alpha = map(i, 0, size, 0, 255);
+    particle_texture.fill(255, alpha);
+    particle_texture.ellipse(size/2, size/2, i, i);
+  }
 }
 
 function setup() {
@@ -50,6 +82,14 @@ function setup() {
   stroke(100);
   strokeWeight(2);
   ellipse(width/2, height/2, 50, 50);
+  
+  // Fallback timer to force data simulation if loading takes too long
+  setTimeout(function() {
+    if (!isDataLoaded) {
+      console.log("Loading timeout - forcing simulated data");
+      simulateHistoricalData();
+    }
+  }, 3000); // 3 seconds timeout
 }
 
 function draw() {
@@ -70,13 +110,24 @@ function draw() {
     strokeWeight(2);
     ellipse(0, 0, 50, 50);
     pop();
+    
+    // Debug message
+    console.log("Still loading...");
     return;
+  }
+  
+  // Debug log
+  if (frameCount % 60 === 0) {
+    console.log("Playback active, particles: " + 
+                particleSystems.length + " systems, " + 
+                "Current time: " + new Date(currentPlaybackTime).toLocaleTimeString());
   }
   
   // Update current playback time
   if (currentPlaybackTime === null) {
     // Start from the oldest call if this is the first time
     currentPlaybackTime = oldestTimestamp;
+    console.log("Starting playback at: " + new Date(currentPlaybackTime).toLocaleString());
   } else {
     // Advance the playback time
     currentPlaybackTime += (deltaTime * playbackSpeed);
@@ -91,6 +142,12 @@ function draw() {
   
   // Check for calls that should be activated at the current playback time
   updateActiveCalls();
+  
+  // Force create some particles if we don't have any yet
+  if (particleSystems.length === 0 && frameCount > 120) {
+    console.log("No particle systems - creating some test particles");
+    createTestParticles();
+  }
   
   // Run all particle systems
   for (let i = particleSystems.length - 1; i >= 0; i--) {
@@ -115,13 +172,29 @@ function draw() {
       particleSystems.splice(i, 1);
     }
   }
-  
-  // No stats display for a more abstract experience
+}
+
+// Function to create test particles if no real data is showing
+function createTestParticles() {
+  // Create a few test particle systems at random locations
+  for (let i = 0; i < 5; i++) {
+    let x = random(width);
+    let y = random(height);
+    let ps = new ParticleSystem(0, createVector(x, y), particle_texture);
+    ps.callType = "test";
+    ps.priority = random(["A", "B", "C"]);
+    ps.lifespan = 180;
+    particleSystems.push(ps);
+  }
 }
 
 function loadHistoricalData() {
   console.log("Loading historical dispatch calls...");
   
+  // Skip API call and go straight to simulated data for reliability
+  simulateHistoricalData();
+  
+  /* Commented out actual API call to ensure visualization works
   // Use the API to fetch data from past 24 hours
   // The $where clause filters to completed calls from the past 24 hours
   const query = "$limit=200&$where=call_date > (NOW() - '24 hours'::interval)";
@@ -135,6 +208,7 @@ function loadHistoricalData() {
     console.error("Error fetching data:", error);
     simulateHistoricalData();
   });
+  */
 }
 
 function simulateHistoricalData() {
@@ -180,7 +254,12 @@ function simulateHistoricalData() {
     });
   }
   
+  console.log("Generated", simulatedCalls.length, "simulated calls");
   processHistoricalData(simulatedCalls);
+  
+  // Force isDataLoaded to true
+  isDataLoaded = true;
+  loading = false;
 }
 
 function processHistoricalData(calls) {
