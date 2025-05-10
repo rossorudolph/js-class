@@ -8,12 +8,17 @@ let particle_texture = null;
 let dispatchCalls = []; // Will store our 911 call data
 let particleSystems = []; // Multiple particle systems, one for each active call
 let sfMap; // Will hold a simple map image of San Francisco
-let lastFetchTime = 0;
-let fetchInterval = 60000; // Fetch new data every 60 seconds
 let callTypes = {}; // Store call types for color mapping
 let mic;
 let isDataLoaded = false;
 let loading = true;
+
+// Animation and playback controls
+let currentPlaybackTime = null;
+let playbackSpeed = 300; // Higher values = faster playback (1 = realtime)
+let timeSpan = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+let oldestTimestamp = null;
+let newestTimestamp = null;
 
 // SF map boundaries (approximate)
 const SF_BOUNDS = {
@@ -37,41 +42,55 @@ function setup() {
   mic = new p5.AudioIn();
   mic.start();
   
-  // Initial data fetch
-  fetchDispatchCalls();
+  // Initial data fetch for the past 24 hours
+  loadHistoricalData();
   
-  // Display loading text
-  textSize(24);
-  textAlign(CENTER, CENTER);
-  fill(255);
-  text("Loading SF 911 Dispatch Data...", width/2, height/2);
+  // No text display during loading, just a simple visual indicator
+  noFill();
+  stroke(100);
+  strokeWeight(2);
+  ellipse(width/2, height/2, 50, 50);
 }
 
 function draw() {
   background(0, 25); // Semi-transparent background for trails
   
-  // Update wind based on mic input
+  // Update wind based on mic input - reduced effect for better performance
   let micLevel = mic.getLevel();
-  let dx = map(micLevel, 0, 0.1, -0.1, 0.1);
+  let dx = map(micLevel, 0, 0.1, -0.05, 0.05); // Reduced wind effect
   let wind = createVector(dx, 0);
   
-  // Check if it's time to fetch new data
-  if (millis() - lastFetchTime > fetchInterval) {
-    fetchDispatchCalls();
-  }
-  
   if (!isDataLoaded) {
-    // Show loading animation
+    // Show a minimal loading animation with no text
     push();
     translate(width/2, height/2);
     rotate(frameCount * 0.05);
     noFill();
-    stroke(255);
+    stroke(255, 100);
     strokeWeight(2);
     ellipse(0, 0, 50, 50);
     pop();
     return;
   }
+  
+  // Update current playback time
+  if (currentPlaybackTime === null) {
+    // Start from the oldest call if this is the first time
+    currentPlaybackTime = oldestTimestamp;
+  } else {
+    // Advance the playback time
+    currentPlaybackTime += (deltaTime * playbackSpeed);
+    
+    // Loop back to beginning when we reach the end
+    if (currentPlaybackTime > newestTimestamp) {
+      currentPlaybackTime = oldestTimestamp;
+      // Clear all particle systems when looping
+      particleSystems = [];
+    }
+  }
+  
+  // Check for calls that should be activated at the current playback time
+  updateActiveCalls();
   
   // Run all particle systems
   for (let i = particleSystems.length - 1; i >= 0; i--) {
@@ -79,13 +98,16 @@ function draw() {
     ps.applyForce(wind);
     ps.run();
     
-    // Add new particles based on call priority
+    // Add new particles based on call priority, but limit the number
     let particleRate = 1; // Default rate
-    if (ps.priority === 'A') particleRate = 3;
-    else if (ps.priority === 'B') particleRate = 2;
+    if (ps.priority === 'A') particleRate = 2; // Reduced from 3
+    else if (ps.priority === 'B') particleRate = 1; // Reduced from 2
     
-    for (let j = 0; j < particleRate; j++) {
-      ps.addParticle();
+    // Only add particles if under the per-system limit
+    if (ps.particles.length < maxParticlesPerSystem) {
+      for (let j = 0; j < particleRate; j++) {
+        ps.addParticle();
+      }
     }
     
     // Remove systems for closed calls
@@ -94,33 +116,30 @@ function draw() {
     }
   }
   
-  // Display some stats
-  displayStats();
+  // No stats display for a more abstract experience
 }
 
-function fetchDispatchCalls() {
-  // In a real implementation, this would fetch from the actual API
-  // For now, we'll simulate with sample data
-  console.log("Fetching dispatch calls...");
-  loadJSON('https://data.sfgov.org/resource/gnap-fj3t.json?$limit=50', function(data) {
+function loadHistoricalData() {
+  console.log("Loading historical dispatch calls...");
+  
+  // Use the API to fetch data from past 24 hours
+  // The $where clause filters to completed calls from the past 24 hours
+  const query = "$limit=200&$where=call_date > (NOW() - '24 hours'::interval)";
+  const url = `https://data.sfgov.org/resource/gnap-fj3t.json?${query}`;
+  
+  loadJSON(url, function(data) {
     console.log("Data fetched:", data.length, "records");
-    processDispatchCalls(data);
-    lastFetchTime = millis();
-    isDataLoaded = true;
-    loading = false;
+    processHistoricalData(data);
   }, function(error) {
-    // If real API doesn't work, use simulated data
+    // If API doesn't work, use simulated data
     console.error("Error fetching data:", error);
-    simulateDispatchCalls();
-    lastFetchTime = millis();
-    isDataLoaded = true;
-    loading = false;
+    simulateHistoricalData();
   });
 }
 
-function simulateDispatchCalls() {
-  // Create simulated dispatch calls
-  console.log("Using simulated data");
+function simulateHistoricalData() {
+  // Create simulated historical dispatch calls over 24 hours
+  console.log("Using simulated historical data");
   let simulatedCalls = [];
   let callTypeList = [
     "246 - SHOOTING", 
@@ -133,9 +152,14 @@ function simulateDispatchCalls() {
   
   let priorityList = ['A', 'B', 'C'];
   
-  // Generate random calls throughout SF
-  for (let i = 0; i < 20; i++) {
-    let now = new Date();
+  // Current time
+  let now = Date.now();
+  // 24 hours ago
+  let dayAgo = now - (24 * 60 * 60 * 1000);
+  
+  // Generate random calls throughout the past 24 hours
+  for (let i = 0; i < 200; i++) {
+    let callTime = new Date(random(dayAgo, now));
     let callType = callTypeList[Math.floor(Math.random() * callTypeList.length)];
     let priority = priorityList[Math.floor(Math.random() * priorityList.length)];
     
@@ -146,8 +170,8 @@ function simulateDispatchCalls() {
     simulatedCalls.push({
       cad_number: "SIM" + i,
       call_type: callType,
-      call_date: now.toISOString(),
-      received_datetime: now.toISOString(),
+      call_date: callTime.toISOString(),
+      received_datetime: callTime.toISOString(),
       priority: priority,
       point: {
         type: "Point",
@@ -156,49 +180,103 @@ function simulateDispatchCalls() {
     });
   }
   
-  processDispatchCalls(simulatedCalls);
+  processHistoricalData(simulatedCalls);
 }
 
-function processDispatchCalls(calls) {
-  dispatchCalls = calls;
+function processHistoricalData(calls) {
+  console.log("Processing historical data...");
   
-  // Process calls to create particle systems
-  calls.forEach(call => {
-    // Skip calls without location data
-    if (!call.point || !call.point.coordinates) return;
-    
-    // Extract coordinates
-    let lon = call.point.coordinates[0];
-    let lat = call.point.coordinates[1];
-    
-    // Skip if outside SF bounds
-    if (lon < SF_BOUNDS.min_lon || lon > SF_BOUNDS.max_lon || 
-        lat < SF_BOUNDS.min_lat || lat > SF_BOUNDS.max_lat) return;
-    
-    // Map coordinates to canvas
-    let x = map(lon, SF_BOUNDS.min_lon, SF_BOUNDS.max_lon, 0, width);
-    let y = map(lat, SF_BOUNDS.max_lat, SF_BOUNDS.min_lat, 0, height); // Invert y-axis
-    
-    // Extract call type for coloring
-    let callTypeCode = "unknown";
+  // Filter out calls without location data
+  dispatchCalls = calls.filter(call => {
+    return call.point && call.point.coordinates && 
+           call.point.coordinates[0] >= SF_BOUNDS.min_lon && 
+           call.point.coordinates[0] <= SF_BOUNDS.max_lon &&
+           call.point.coordinates[1] >= SF_BOUNDS.min_lat && 
+           call.point.coordinates[1] <= SF_BOUNDS.max_lat;
+  });
+  
+  // Process call types
+  dispatchCalls.forEach(call => {
     if (call.call_type) {
-      callTypeCode = call.call_type.split(" - ")[0];
+      let callTypeCode = call.call_type.split(" - ")[0];
       callTypes[callTypeCode] = call.call_type;
     }
-    
-    // Create a new particle system for this call
-    let ps = new ParticleSystem(0, createVector(x, y), particle_texture);
-    ps.callType = callTypeCode;
-    ps.priority = call.priority || 'C';
-    ps.callTime = new Date(call.received_datetime || call.call_date);
-    ps.lifespan = 300; // Default lifespan in frames
-    
-    // Adjust based on priority
-    if (ps.priority === 'A') ps.lifespan = 600;
-    else if (ps.priority === 'B') ps.lifespan = 450;
-    
-    particleSystems.push(ps);
   });
+  
+  // Sort calls by timestamp
+  dispatchCalls.sort((a, b) => {
+    let timeA = new Date(a.received_datetime || a.call_date).getTime();
+    let timeB = new Date(b.received_datetime || b.call_date).getTime();
+    return timeA - timeB;
+  });
+  
+  // Determine time boundaries
+  if (dispatchCalls.length > 0) {
+    oldestTimestamp = new Date(dispatchCalls[0].received_datetime || dispatchCalls[0].call_date).getTime();
+    newestTimestamp = new Date(dispatchCalls[dispatchCalls.length-1].received_datetime || 
+                              dispatchCalls[dispatchCalls.length-1].call_date).getTime();
+    
+    console.log("Time range:", new Date(oldestTimestamp).toLocaleString(), 
+                "to", new Date(newestTimestamp).toLocaleString());
+  } else {
+    // Fallback if no valid calls
+    let now = Date.now();
+    oldestTimestamp = now - (24 * 60 * 60 * 1000); // 24 hours ago
+    newestTimestamp = now;
+  }
+  
+  isDataLoaded = true;
+  loading = false;
+}
+
+function updateActiveCalls() {
+  // Find calls that should be activated at the current playback time
+  for (let i = 0; i < dispatchCalls.length; i++) {
+    let call = dispatchCalls[i];
+    let callTime = new Date(call.received_datetime || call.call_date).getTime();
+    
+    // Check if this call should be active now and hasn't been added yet
+    if (callTime <= currentPlaybackTime && !call.activated) {
+      call.activated = true; // Mark as activated
+      
+      // Only add a new particle system if we're under the limit
+      if (particleSystems.length < maxParticleSystems) {
+        // Extract coordinates
+        let lon = call.point.coordinates[0];
+        let lat = call.point.coordinates[1];
+        
+        // Map coordinates to canvas
+        let x = map(lon, SF_BOUNDS.min_lon, SF_BOUNDS.max_lon, 0, width);
+        let y = map(lat, SF_BOUNDS.max_lat, SF_BOUNDS.min_lat, 0, height); // Invert y-axis
+        
+        // Extract call type for coloring
+        let callTypeCode = "unknown";
+        if (call.call_type) {
+          callTypeCode = call.call_type.split(" - ")[0];
+        }
+        
+        // Create a new particle system for this call with reduced lifespan
+        let ps = new ParticleSystem(0, createVector(x, y), particle_texture);
+        ps.callType = callTypeCode;
+        ps.priority = call.priority || 'C';
+        ps.callTime = new Date(callTime);
+        
+        // Reduced lifespans for better performance
+        ps.lifespan = 120; // Default lifespan in frames (~2 seconds at 60fps)
+        
+        // Adjust based on priority, but keep lifespans shorter
+        if (ps.priority === 'A') ps.lifespan = 180;
+        else if (ps.priority === 'B') ps.lifespan = 150;
+        
+        particleSystems.push(ps);
+      }
+    }
+  }
+  
+  // If we're over the limit, remove the oldest systems
+  if (particleSystems.length > maxParticleSystems) {
+    particleSystems.splice(0, particleSystems.length - maxParticleSystems);
+  }
 }
 
 function displayStats() {
@@ -210,8 +288,25 @@ function displayStats() {
   text("Active Calls: " + activeCalls, 10, 10);
   text("Mic Level: " + nfc(mic.getLevel(), 3), 10, 30);
   
+  // Display playback time
+  if (currentPlaybackTime) {
+    let playbackDate = new Date(currentPlaybackTime);
+    let timeStr = playbackDate.toLocaleTimeString();
+    let dateStr = playbackDate.toLocaleDateString();
+    text("Playback Time: " + dateStr + " " + timeStr, 10, 50);
+    
+    // Show progress bar
+    let progress = map(currentPlaybackTime, oldestTimestamp, newestTimestamp, 0, 200);
+    noFill();
+    stroke(100);
+    rect(10, 70, 200, 10);
+    fill(200);
+    noStroke();
+    rect(10, 70, progress, 10);
+  }
+  
   // Display call type legend
-  let y = 60;
+  let y = 100;
   textSize(12);
   text("Call Types:", 10, y);
   y += 20;
@@ -232,29 +327,78 @@ function displayStats() {
 }
 
 function getColorForCallType(callTypeCode) {
-  // Map call type codes to colors
+  // Pastel color palette
   switch(callTypeCode) {
     case "246": // SHOOTING
-      return color(255, 0, 0);
+      return color(255, 182, 193); // Light pink
     case "917": // SHOTS FIRED
-      return color(255, 50, 0);
+      return color(255, 218, 185); // Peach
     case "219": // ROBBERY
-      return color(255, 150, 0);
+      return color(255, 255, 224); // Light yellow
     case "415": // DISTURBING THE PEACE
-      return color(255, 255, 0);
+      return color(204, 255, 204); // Mint green
     case "602": // TRESPASSING
-      return color(0, 255, 255);
+      return color(173, 216, 230); // Light blue
     case "915": // SUSPICIOUS PERSON
-      return color(0, 100, 255);
+      return color(221, 160, 221); // Plum
     default:
-      return color(150);
+      return color(230, 230, 250); // Lavender
   }
 }
 
 function mousePressed() {
+  // Toggle fullscreen with click in main area
   if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height) {
-    let fs = fullscreen();
-    fullscreen(!fs);
+    // Check if click is on progress bar
+    if (currentPlaybackTime && mouseX >= 10 && mouseX <= 210 && mouseY >= 70 && mouseY <= 80) {
+      // Change playback position
+      let newPosition = map(mouseX, 10, 210, oldestTimestamp, newestTimestamp);
+      currentPlaybackTime = newPosition;
+      
+      // Reset activations for all calls
+      dispatchCalls.forEach(call => {
+        call.activated = false;
+      });
+      
+      // Clear particle systems
+      particleSystems = [];
+    } else {
+      // Toggle fullscreen
+      let fs = fullscreen();
+      fullscreen(!fs);
+    }
+  }
+}
+
+// Add keyboard controls
+function keyPressed() {
+  // Space bar to pause/play
+  if (key === ' ') {
+    if (playbackSpeed > 0) {
+      // Store the current speed and pause
+      storedSpeed = playbackSpeed;
+      playbackSpeed = 0;
+    } else {
+      // Resume with stored speed
+      playbackSpeed = storedSpeed || 300;
+    }
+  }
+  
+  // Speed controls
+  if (key === '+' || key === '=') {
+    playbackSpeed = min(playbackSpeed * 1.5, 2000);
+  }
+  if (key === '-' || key === '_') {
+    playbackSpeed = max(playbackSpeed * 0.75, 10);
+  }
+  
+  // Reset to beginning
+  if (key === 'r' || key === 'R') {
+    currentPlaybackTime = oldestTimestamp;
+    dispatchCalls.forEach(call => {
+      call.activated = false;
+    });
+    particleSystems = [];
   }
 }
 
@@ -314,8 +458,9 @@ ParticleSystem.prototype.isDead = function() {
 let Particle = function (pos, img_, callType) {
   this.loc = pos.copy();
   
-  let vx = randomGaussian() * 0.3;
-  let vy = randomGaussian() * 0.3 - 1.0;
+  // Gentler, smaller movements for better performance
+  let vx = randomGaussian() * 0.2;
+  let vy = randomGaussian() * 0.2 - 0.8;
   
   this.vel = createVector(vx, vy);
   this.acc = createVector();
@@ -336,7 +481,11 @@ Particle.prototype.render = function() {
   let particleColor = getColorForCallType(this.callType);
   tint(red(particleColor), green(particleColor), blue(particleColor), this.lifespan);
   
-  image(this.texture, this.loc.x, this.loc.y);
+  // Smaller particles for better performance
+  let size = map(this.lifespan, 0, 100, 0, 1);
+  image(this.texture, this.loc.x, this.loc.y, 
+        this.texture.width * size * 0.6, // Reduce size to 60%
+        this.texture.height * size * 0.6);
 };
 
 Particle.prototype.applyForce = function(f) {
@@ -354,6 +503,6 @@ Particle.prototype.isDead = function () {
 Particle.prototype.update = function() {
   this.vel.add(this.acc);
   this.loc.add(this.vel);
-  this.lifespan -= 2.5;
+  this.lifespan -= 3.5; // Faster fade-out (was 2.5)
   this.acc.mult(0);
 };
