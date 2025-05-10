@@ -40,7 +40,7 @@
     
     // Performance settings
     let maxParticleSystems = 15;
-    let maxParticlesPerSystem = 40;
+    let maxParticlesPerSystem = 60; // CHANGED: Increased from 40 for more visible smoke
     
     // SF map boundaries (for realism)
     const SF_BOUNDS = {
@@ -68,15 +68,16 @@
     }
     
     function draw() {
-      background(0, 25); // Semi-transparent background for trails
+      // CHANGED: More transparent background to show more trails
+      background(0, 18); // Reduced opacity from 25 to 18
       
       // Update wind based on mic input
       let micLevel = mic.getLevel() || 0.01;
       let dx = map(micLevel, 0, 0.1, -0.05, 0.05);
       let wind = createVector(dx, 0);
       
-      // Occasionally add new particle systems
-      if (frameCount % 90 === 0 && particleSystems.length < maxParticleSystems) {
+      // CHANGED: More frequent new particle systems
+      if (frameCount % 60 === 0 && particleSystems.length < maxParticleSystems) { // Changed from 90 to 60
         addRandomParticleSystem();
       }
       
@@ -86,10 +87,10 @@
         ps.applyForce(wind);
         ps.run();
         
-        // Add new particles based on call priority, but limit the number
+        // CHANGED: Increased particle emission rates
         let particleRate = 1; // Default rate
-        if (ps.priority === 'A') particleRate = 2;
-        else if (ps.priority === 'B') particleRate = 1;
+        if (ps.priority === 'A') particleRate = 3; // Increased from 2
+        else if (ps.priority === 'B') particleRate = 2; // Increased from 1
         
         // Only add particles if under the per-system limit
         if (ps.particles.length < maxParticlesPerSystem) {
@@ -213,18 +214,19 @@
     };
     
     //========= PARTICLE CLASS ===========
+    // CHANGED: Particle constructor for better smoke effect
     let Particle = function (pos, callType) {
       this.loc = pos.copy();
       
-      // Gentler, smaller movements
-      let vx = randomGaussian() * 0.2;
-      let vy = randomGaussian() * 0.2 - 0.8;
+      // More varied movement for better smoke effect
+      let vx = randomGaussian() * 0.25; // Increased from 0.2
+      let vy = randomGaussian() * 0.25 - 0.7; // Less downward bias (-0.7 vs -0.8)
       
       this.vel = createVector(vx, vy);
       this.acc = createVector();
-      this.lifespan = 100.0;
+      this.lifespan = 130.0; // CHANGED: Increased from 100.0 for longer trails
       this.callType = callType || "unknown";
-      this.radius = random(10, 20);
+      this.radius = random(6, 15); // CHANGED: Smaller radius range (was 10-20)
     };
     
     Particle.prototype.run = function() {
@@ -232,26 +234,29 @@
       this.render();
     };
     
+    // CHANGED: Completely revised render function for more visible smoke effect
     Particle.prototype.render = function() {
       // Apply color based on call type
       let particleColor = getColorForCallType(this.callType);
       
       // Calculate size based on lifespan
-      let size = map(this.lifespan, 0, 100, 0, 1) * this.radius;
+      let size = map(this.lifespan, 0, 130, 0, 1) * this.radius;
       
       // Draw soft circle
       noStroke();
       
-      // Outer glow
-      for (let i = 4; i > 0; i--) {
-        let alpha = map(i, 0, 4, 0, this.lifespan);
-        fill(red(particleColor), green(particleColor), blue(particleColor), alpha * 0.2);
-        ellipse(this.loc.x, this.loc.y, size * i, size * i);
+      // More subtle outer glow - fewer layers, less opacity
+      for (let i = 3; i > 0; i--) {
+        // Reduced opacity for glow layers
+        let alpha = map(i, 0, 3, 0, this.lifespan * 0.15);
+        fill(red(particleColor), green(particleColor), blue(particleColor), alpha);
+        // Smaller size multiplier for outer layers
+        ellipse(this.loc.x, this.loc.y, size * (i * 0.8), size * (i * 0.8));
       }
       
-      // Core
-      fill(red(particleColor), green(particleColor), blue(particleColor), this.lifespan);
-      ellipse(this.loc.x, this.loc.y, size, size);
+      // Smaller, more defined core
+      fill(red(particleColor), green(particleColor), blue(particleColor), this.lifespan * 0.7);
+      ellipse(this.loc.x, this.loc.y, size * 0.6, size * 0.6);
     };
     
     Particle.prototype.applyForce = function(f) {
@@ -266,10 +271,11 @@
       }
     };
     
+    // CHANGED: Slower fade-out
     Particle.prototype.update = function() {
       this.vel.add(this.acc);
       this.loc.add(this.vel);
-      this.lifespan -= 3.5; // Faster fade-out
+      this.lifespan -= 2.2; // CHANGED: Slower fade-out (was 3.5)
       this.acc.mult(0);
     };
   </script>
