@@ -40,7 +40,11 @@
     
     // Performance settings
     let maxParticleSystems = 15;
-    let maxParticlesPerSystem = 60; // CHANGED: Increased from 40 for more visible smoke
+    let maxParticlesPerSystem = 80; // INCREASED from 60 to 80 for smoother appearance
+    
+    // System creation timing (moved out of draw loop)
+    let lastSystemCreatedTime = 0;
+    let systemCreationInterval = 3000; // milliseconds between new systems
     
     // SF map boundaries (for realism)
     const SF_BOUNDS = {
@@ -61,6 +65,13 @@
       // Create initial particle systems
       createInitialParticleSystems();
       
+      // Set up timer for creating new systems
+      setInterval(function() {
+        if (particleSystems.length < maxParticleSystems) {
+          addRandomParticleSystem();
+        }
+      }, systemCreationInterval);
+      
       // Hide cursor after inactivity
       setTimeout(() => {
         document.body.classList.add('cursor-hidden');
@@ -68,22 +79,17 @@
     }
     
     function draw() {
-      // CHANGED: More transparent background to show more trails
-      background(0, 18); // Reduced opacity from 25 to 18
+      // IMPROVED: Even more transparent background for smoother transitions
+      background(0, 15); // Further reduced opacity from 18 to 15
       
-      // Update wind based on mic input - ADJUSTED: Less horizontal movement
+      // Update wind based on mic input
       let micLevel = mic.getLevel() || 0.01;
-      let dx = map(micLevel, 0, 0.1, -0.02, 0.02); // REDUCED from (-0.05, 0.05) to make less horizontal drift
-      
-      // ADDED: More vertical movement from audio to balance the reduced horizontal drift
-      let dy = map(micLevel, 0, 0.1, -0.01, -0.04); // Add some upward movement based on audio
-      
+      let dx = map(micLevel, 0, 0.1, -0.02, 0.02);
+      let dy = map(micLevel, 0, 0.1, -0.01, -0.04);
       let wind = createVector(dx, dy);
       
-      // CHANGED: Less frequent creation of new systems to avoid too many blinking effects
-      if (frameCount % 120 === 0 && particleSystems.length < maxParticleSystems) { // Changed from 60 to 120
-        addRandomParticleSystem();
-      }
+      // CHANGED: Removed the periodic creation of new systems from the draw loop
+      // Instead, we'll create them on a timer to avoid frame-rate dependencies
       
       // Run all particle systems
       for (let i = particleSystems.length - 1; i >= 0; i--) {
@@ -91,21 +97,9 @@
         ps.applyForce(wind);
         ps.run();
         
-        // CHANGED: More consistent particle emission (less variance between priorities)
-        // This helps prevent the "blinking" effect caused by intermittent emission
-        let particleRate = 2; // Default rate increased
-        if (ps.priority === 'A') particleRate = 3;
-        else if (ps.priority === 'B') particleRate = 2;
-        else particleRate = 2; // Even priority C gets consistent emission
+        // REMOVED: No need to add particles here anymore, each system manages its own emission
         
-        // Only add particles if under the per-system limit
-        if (ps.particles.length < maxParticlesPerSystem) {
-          for (let j = 0; j < particleRate; j++) {
-            ps.addParticle();
-          }
-        }
-        
-        // CHANGED: Check if we've reached the onscene time
+        // Check if we've reached the onscene time
         if (ps.hasReachedOnScene()) {
           particleSystems.splice(i, 1);
         }
@@ -117,8 +111,11 @@
     
     function createInitialParticleSystems() {
       // Create several initial particle systems
-      for (let i = 0; i < 10; i++) {
-        addRandomParticleSystem();
+      for (let i = 0; i < 5; i++) { // REDUCED from 10 to 5 for less initial chaos
+        // Stagger the creation slightly to avoid all appearing at once
+        setTimeout(() => {
+          addRandomParticleSystem();
+        }, i * 300); // Add a new system every 300ms
       }
     }
     
@@ -234,20 +231,60 @@
       this.onSceneTime = 0;
       this.age = 0;
       
-      // ADDED: Initial burst of particles to prevent empty-looking start
-      this.initialParticles = 20; // Create some particles immediately
+      // IMPROVED: Create many more initial particles with staggered lifespans
+      this.initialParticles = 40; // Doubled from 20
+      
+      // Track emission timing for consistency
+      this.lastEmissionTime = 0;
+      this.emissionRate = 15; // Frames between emissions
+      
+      // Create the initial particle batch right away in constructor
+      for (let i = 0; i < this.initialParticles; i++) {
+        // Create particles with staggered lifespans
+        let offset = createVector(random(-8, 8), random(-8, 8));
+        let startPos = p5.Vector.add(origin, offset);
+        
+        // Create particle with pre-aged lifespan to avoid all appearing at once
+        let p = new Particle(startPos, this.callType);
+        
+        // Pre-age some particles to create a natural distribution
+        if (i > this.initialParticles * 0.3) {
+          // Make 70% of initial particles appear pre-aged with varied lifespans
+          let preAge = random(10, 100);
+          p.lifespan -= preAge;
+          
+          // Also move them a bit to simulate they've been traveling
+          p.loc.x += p.vel.x * preAge * 0.1;
+          p.loc.y += p.vel.y * preAge * 0.1;
+        }
+        
+        this.particles.push(p);
+      }
     };
     
     ParticleSystem.prototype.run = function() {
       this.age++;
       
-      // ADDED: Create initial burst of particles when system is new
-      if (this.age === 1 && this.initialParticles > 0) {
-        for (let i = 0; i < this.initialParticles; i++) {
-          this.addParticle();
+      // IMPROVED: More consistent emission pattern
+      if (frameCount - this.lastEmissionTime >= this.emissionRate) {
+        // Time to emit new particles
+        this.lastEmissionTime = frameCount;
+        
+        // Emit a batch of particles based on priority
+        let batchSize = (this.priority === 'A') ? 10 : 
+                        (this.priority === 'B') ? 8 : 6;
+        
+        // Only emit if we haven't reached capacity
+        if (this.particles.length < maxParticlesPerSystem) {
+          for (let i = 0; i < batchSize; i++) {
+            // If we'd exceed the max, stop adding
+            if (this.particles.length >= maxParticlesPerSystem) break;
+            this.addParticle();
+          }
         }
       }
       
+      // Process existing particles
       let len = this.particles.length;
       for (let i = len - 1; i >= 0; i--) {
         let particle = this.particles[i];
@@ -268,8 +305,8 @@
     };
     
     ParticleSystem.prototype.addParticle = function() {
-      // CHANGED: Add slight position variation to each particle's starting position
-      let offset = createVector(random(-5, 5), random(-5, 5));
+      // IMPROVED: Greater position variation
+      let offset = createVector(random(-10, 10), random(-10, 10));
       let startPos = p5.Vector.add(this.origin, offset);
       
       this.particles.push(new Particle(startPos, this.callType));
@@ -286,20 +323,26 @@
       this.loc = pos.copy();
       
       // Adjusted movement - less horizontal drift
-      let vx = randomGaussian() * 0.15; // Reduced from 0.25 to decrease horizontal movement
-      let vy = randomGaussian() * 0.3 - 0.65; // Modified vertical movement (more upward)
+      let vx = randomGaussian() * 0.15;
+      let vy = randomGaussian() * 0.3 - 0.65;
       
       this.vel = createVector(vx, vy);
       this.acc = createVector();
       
-      // CHANGED: More consistent lifespan with less variance to prevent blinking effect
-      this.lifespan = random(120, 140); // Small range instead of fixed value
+      // IMPROVED: More varied lifespan with better distribution
+      this.maxLifespan = random(140, 160); // Longer max lifespan
+      this.lifespan = this.maxLifespan; // Start at max
       
       this.callType = callType || "unknown";
-      this.radius = random(6, 15); // CHANGED: Smaller radius range (was 10-20)
+      this.radius = random(6, 15);
       
       // ADDED: Variable to track opacity consistency
-      this.opacityMultiplier = random(0.9, 1.1); // Slight random variation per particle
+      this.opacityMultiplier = random(0.9, 1.1);
+      
+      // Pre-animation state tracker
+      this.state = "fade-in"; // States: "fade-in", "active", "fade-out"
+      this.fadeInDuration = random(10, 20); // Frames to fade in
+      this.fadeOutStart = this.maxLifespan * random(0.2, 0.3); // When to start fading out
     };
     
     Particle.prototype.run = function() {
@@ -307,34 +350,47 @@
       this.render();
     };
     
-    // CHANGED: Completely revised render function for more visible smoke effect
+    // IMPROVED: Completely revised render function for smoother transitions
     Particle.prototype.render = function() {
       // Apply color based on call type
       let particleColor = getColorForCallType(this.callType);
       
-      // Calculate size based on lifespan - SMOOTHER TRANSITION
-      let lifeRatio = this.lifespan / 130.0;  // Normalize lifespan
-      let size = map(lifeRatio, 0, 1, 0, 1) * this.radius;
-      
-      // CHANGED: Smoother fade-in/fade-out to prevent blinking
+      // Calculate alpha based on particle state
       let alpha = 255;
-      if (lifeRatio > 0.9) {
-        // Fade in during first 10% of life
-        alpha = map(lifeRatio, 1, 0.9, 0, 255);
-      } else if (lifeRatio < 0.2) {
-        // Fade out during last 20% of life
-        alpha = map(lifeRatio, 0, 0.2, 0, 255);
+      
+      if (this.state === "fade-in") {
+        // During fade-in, gradually increase from 0 to full alpha
+        let progress = (this.maxLifespan - this.lifespan) / this.fadeInDuration;
+        alpha = map(progress, 0, 1, 0, 255);
+        if (progress >= 1) {
+          this.state = "active";
+        }
+      } else if (this.state === "active") {
+        // Full opacity during active state
+        alpha = 255;
+        // Check if it's time to start fading out
+        if (this.lifespan < this.fadeOutStart) {
+          this.state = "fade-out";
+        }
+      } else if (this.state === "fade-out") {
+        // During fade-out, gradually decrease to 0
+        let progress = this.lifespan / this.fadeOutStart;
+        alpha = map(progress, 0, 1, 0, 255);
       }
       
       // Apply individual particle's opacity variation
       alpha *= this.opacityMultiplier;
+      
+      // Calculate size based on lifespan - smoother transition
+      let lifeRatio = this.lifespan / this.maxLifespan;
+      let size = lifeRatio * this.radius;
       
       // Draw soft circle
       noStroke();
       
       // More subtle outer glow - fewer layers, less opacity
       for (let i = 3; i > 0; i--) {
-        // Reduced opacity for glow layers, using the smooth alpha transition
+        // Reduced opacity for glow layers
         let layerAlpha = (alpha * 0.15) * (i / 3);
         fill(red(particleColor), green(particleColor), blue(particleColor), layerAlpha);
         // Smaller size multiplier for outer layers
