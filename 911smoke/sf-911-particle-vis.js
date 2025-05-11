@@ -1,136 +1,320 @@
-/* 
- * SF 911 Visualization - Working Version
- * Based on the smoke particles example with soft pastel colors
- */
+// Real-time data loading functions
 
-// Global variables
-let mic;
-let particleSystems = [];
-let callTypes = {};
-
-// Performance settings
-let maxParticleSystems = 15;
-let maxParticlesPerSystem = 60; // Increased particles per system for more visible smoke
-
-// SF map boundaries (for realism)
-const SF_BOUNDS = {
-  min_lon: -122.52,
-  max_lon: -122.36,
-  min_lat: 37.70,
-  max_lat: 37.83
-};
-
-function setup() {
-  createCanvas(windowWidth, windowHeight);
-  background(0);
+// This function will fetch real 911 dispatch data from SF's open data API
+function loadRealDispatchData() {
+  console.log("Loading real dispatch data from SF Open Data...");
   
-  // Setup microphone
-  mic = new p5.AudioIn();
-  mic.start();
+  // Construct the query to get data from the last 24 hours
+  // The $where clause uses SQL-like syntax and the NOW() function provides current time
+  const hoursToLoad = 24;
   
-  // Create initial particle systems
-  createInitialParticleSystems();
+  // Craft API query with parameters
+  const query = {
+    "$limit": 200, // Limit to 200 records for performance
+    "$where": `call_date > (NOW() - '${hoursToLoad} hours'::interval)`, // Last 24 hours
+    "$order": "call_date DESC" // Most recent first
+  };
   
-  // Hide cursor after inactivity
-  setTimeout(() => {
-    document.body.classList.add('cursor-hidden');
-  }, 3000);
+  // Convert the query object to URL parameters
+  const queryString = Object.entries(query)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join('&');
+  
+  // SF Open Data API endpoint
+  const url = `https://data.sfgov.org/resource/gnap-fj3t.json?${queryString}`;
+  
+  // Fetch data using p5's loadJSON function
+  loadJSON(url, 
+    // Success callback
+    function(data) {
+      console.log(`Successfully loaded ${data.length} records from SF Open Data`);
+      processRealData(data);
+    },
+    // Error callback
+    function(error) {
+      console.error("Error loading data from SF Open Data:", error);
+      console.log("Falling back to simulated data");
+      simulateDispatchData();
+    }
+  );
 }
 
-function draw() {
-  // More transparent background to show more trails
-  background(0, 18); // Reduced opacity for more visible smoke trails
+// Process the real data and prepare it for visualization
+function processRealData(data) {
+  console.log("Processing real 911 dispatch data...");
   
-  // Update wind based on mic input
-  let micLevel = mic.getLevel() || 0.01;
-  let dx = map(micLevel, 0, 0.1, -0.05, 0.05);
-  let wind = createVector(dx, 0);
-  
-  // Occasionally add new particle systems
-  if (frameCount % 60 === 0 && particleSystems.length < maxParticleSystems) { // More frequent particles
-    addRandomParticleSystem();
+  // Check if we have valid data
+  if (!data || data.length === 0) {
+    console.warn("No valid data received, falling back to simulation");
+    simulateDispatchData();
+    return;
   }
   
-  // Run all particle systems
-  for (let i = particleSystems.length - 1; i >= 0; i--) {
-    let ps = particleSystems[i];
-    ps.applyForce(wind);
-    ps.run();
+  // Clear existing calls and reset
+  dispatchCalls = [];
+  particleSystems = [];
+  
+  // Process each call in the dataset
+  data.forEach(call => {
+    // Skip calls without required data
+    if (!call.call_type || !call.received_datetime || !call.priority) {
+      return;
+    }
     
-    // Add new particles based on call priority, but limit the number
-    let particleRate = 1; // Default rate
-    if (ps.priority === 'A') particleRate = 3; // Increased from 2
-    else if (ps.priority === 'B') particleRate = 2; // Increased from 1
+    // Extract location coordinates if available
+    let location = null;
+    if (call.point && call.point.coordinates) {
+      location = {
+        longitude: call.point.coordinates[0],
+        latitude: call.point.coordinates[1]
+      };
+    } else {
+      // Skip calls without location data
+      return;
+    }
     
-    // Only add particles if under the per-system limit
-    if (ps.particles.length < maxParticlesPerSystem) {
-      for (let j = 0; j < particleRate; j++) {
-        ps.addParticle();
+    // Check if the location is within SF bounds
+    if (location.longitude < SF_BOUNDS.min_lon || location.longitude > SF_BOUNDS.max_lon || 
+        location.latitude < SF_BOUNDS.min_lat || location.latitude > SF_BOUNDS.max_lat) {
+      return;
+    }
+    
+    // Convert the call to our internal format
+    let processedCall = {
+      id: call.cad_number || `call-${dispatchCalls.length}`,
+      callType: call.call_type.split(' - ')[0] || "unknown", // Extract the code portion
+      fullCallType: call.call_type,
+      receivedTime: new Date(call.received_datetime),
+      dispatchTime: call.dispatch_datetime ? new Date(call.dispatch_datetime) : null,
+      onSceneTime: call.onscene_datetime ? new Date(call.onscene_datetime) : null,
+      priority: call.priority,
+      location: location,
+      address: call.address,
+      neighborhood: call.analysis_neighborhood || call.supervisor_district || "Unknown",
+      status: call.disposition || "Active"
+    };
+    
+    // Calculate missing timestamps for visualization if needed
+    if (!processedCall.dispatchTime) {
+      // If no dispatch time, estimate based on priority (A=fast, C=slow)
+      const delayMinutes = processedCall.priority === 'A' ? 1 : 
+                          processedCall.priority === 'B' ? 3 : 5;
+      processedCall.dispatchTime = new Date(processedCall.receivedTime.getTime() + (delayMinutes * 60 * 1000));
+    }
+    
+    if (!processedCall.onSceneTime) {
+      // If no on-scene time, estimate based on priority
+      const responseMinutes = processedCall.priority === 'A' ? 5 : 
+                             processedCall.priority === 'B' ? 10 : 15;
+      processedCall.onSceneTime = new Date(processedCall.dispatchTime.getTime() + (responseMinutes * 60 * 1000));
+    }
+    
+    // Add to our collection
+    dispatchCalls.push(processedCall);
+  });
+  
+  console.log(`Processed ${dispatchCalls.length} valid calls with location data`);
+  
+  // If we got enough data, start the visualization
+  if (dispatchCalls.length > 0) {
+    // Sort by time
+    dispatchCalls.sort((a, b) => a.receivedTime - b.receivedTime);
+    
+    // Start the playback
+    startPlayback();
+  } else {
+    console.warn("Not enough valid calls with location data, falling back to simulation");
+    simulateDispatchData();
+  }
+}
+
+// Simulate data when real data is unavailable or insufficient
+function simulateDispatchData() {
+  console.log("Generating simulated 911 dispatch data...");
+  
+  // Clear any existing data
+  dispatchCalls = [];
+  particleSystems = [];
+  
+  // Common call types in SF's system
+  const callTypeList = [
+    { code: "246", description: "SHOOTING" },
+    { code: "415", description: "DISTURBING THE PEACE" },
+    { code: "602", description: "TRESPASSING" },
+    { code: "915", description: "SUSPICIOUS PERSON" },
+    { code: "917", description: "SHOTS FIRED" },
+    { code: "219", description: "ROBBERY" },
+    { code: "222", description: "VEHICLE COLLISION" },
+    { code: "852", description: "MEDICAL EMERGENCY" }
+  ];
+  
+  // Common neighborhoods in SF
+  const neighborhoods = [
+    "TENDERLOIN", "MISSION", "SOMA", "NOB HILL", "DOWNTOWN", "SUNSET", 
+    "RICHMOND", "BAYVIEW", "CASTRO", "HAIGHT ASHBURY", "MARINA"
+  ];
+  
+  // Generate calls over the past 24 hours
+  const now = new Date();
+  const dayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+  
+  // Number of calls to generate
+  const numCalls = 150;
+  
+  for (let i = 0; i < numCalls; i++) {
+    // Random time in the past 24 hours
+    const callTime = new Date(dayAgo.getTime() + Math.random() * (now.getTime() - dayAgo.getTime()));
+    
+    // Random call type
+    const callTypeIndex = Math.floor(Math.random() * callTypeList.length);
+    const callType = callTypeList[callTypeIndex];
+    
+    // Random priority (weighted to have more C than A)
+    const priorityRoll = Math.random();
+    const priority = priorityRoll < 0.2 ? 'A' : (priorityRoll < 0.5 ? 'B' : 'C');
+    
+    // Random location within SF bounds
+    const longitude = SF_BOUNDS.min_lon + Math.random() * (SF_BOUNDS.max_lon - SF_BOUNDS.min_lon);
+    const latitude = SF_BOUNDS.min_lat + Math.random() * (SF_BOUNDS.max_lat - SF_BOUNDS.min_lat);
+    
+    // Random neighborhood
+    const neighborhood = neighborhoods[Math.floor(Math.random() * neighborhoods.length)];
+    
+    // Calculate dispatch and onscene times based on priority
+    const dispatchDelay = priority === 'A' ? 1 : (priority === 'B' ? 3 : 5); // minutes
+    const responseTime = priority === 'A' ? 5 : (priority === 'B' ? 10 : 15); // minutes
+    
+    const dispatchTime = new Date(callTime.getTime() + (dispatchDelay * 60 * 1000));
+    const onSceneTime = new Date(dispatchTime.getTime() + (responseTime * 60 * 1000));
+    
+    // Create the simulated call record
+    dispatchCalls.push({
+      id: `sim-${i}`,
+      callType: callType.code,
+      fullCallType: `${callType.code} - ${callType.description}`,
+      receivedTime: callTime,
+      dispatchTime: dispatchTime,
+      onSceneTime: onSceneTime,
+      priority: priority,
+      location: {
+        longitude: longitude,
+        latitude: latitude
+      },
+      address: `${Math.floor(Math.random() * 2000)} BLOCK OF ${["MARKET", "MISSION", "FOLSOM", "VALENCIA", "HAIGHT", "GEARY"][Math.floor(Math.random() * 6)]} ST`,
+      neighborhood: neighborhood,
+      status: Math.random() < 0.8 ? "HAN - HANDLED" : "GOA - GONE ON ARRIVAL"
+    });
+  }
+  
+  // Sort by time
+  dispatchCalls.sort((a, b) => a.receivedTime - b.receivedTime);
+  
+  console.log(`Generated ${dispatchCalls.length} simulated calls`);
+  
+  // Start the playback
+  startPlayback();
+}
+
+// Setup playback of 911 call data
+function startPlayback() {
+  console.log("Starting playback of dispatch calls...");
+  
+  if (!dispatchCalls || dispatchCalls.length === 0) {
+    console.error("No dispatch calls to play back");
+    return;
+  }
+  
+  // Set playback boundaries
+  oldestTimestamp = dispatchCalls[0].receivedTime.getTime();
+  newestTimestamp = dispatchCalls[dispatchCalls.length - 1].receivedTime.getTime();
+  
+  // Start from the beginning
+  currentPlaybackTime = oldestTimestamp;
+  
+  // Reset all activation flags
+  dispatchCalls.forEach(call => {
+    call.activated = false;
+    call.completed = false;
+  });
+  
+  console.log(`Playback range: ${new Date(oldestTimestamp).toLocaleString()} to ${new Date(newestTimestamp).toLocaleString()}`);
+  console.log("Playback ready");
+  
+  // Data is loaded, start visualization
+  isDataLoaded = true;
+}
+
+// Check for calls that should be activated or deactivated based on current playback time
+function updateActiveCalls() {
+  // Check each call
+  for (let i = 0; i < dispatchCalls.length; i++) {
+    let call = dispatchCalls[i];
+    
+    // Get timestamps
+    let receivedTime = call.receivedTime.getTime();
+    let onSceneTime = call.onSceneTime.getTime();
+    
+    // If the call should be active now and hasn't been activated
+    if (receivedTime <= currentPlaybackTime && !call.activated) {
+      // Mark as activated
+      call.activated = true;
+      
+      // Only create a particle system if we're under the limit
+      if (particleSystems.length < maxParticleSystems) {
+        createParticleSystemForCall(call);
       }
     }
     
-    // Remove systems for closed calls
-    if (ps.isDead()) {
+    // If the call has reached its on-scene time, mark as completed
+    if (onSceneTime <= currentPlaybackTime && !call.completed) {
+      call.completed = true;
+    }
+  }
+  
+  // Update any active particle systems
+  for (let i = particleSystems.length - 1; i >= 0; i--) {
+    let ps = particleSystems[i];
+    
+    // Find the associated call
+    let call = dispatchCalls.find(c => c.id === ps.callId);
+    
+    // Remove the system if the call is completed
+    if (call && call.completed) {
       particleSystems.splice(i, 1);
     }
   }
 }
 
-function createInitialParticleSystems() {
-  // Create several initial particle systems
-  for (let i = 0; i < 10; i++) {
-    addRandomParticleSystem();
-  }
-}
-
-function addRandomParticleSystem() {
-  // Random position on screen
-  let x = random(width);
-  let y = random(height);
+// Create a particle system for a specific call
+function createParticleSystemForCall(call) {
+  // Convert geographic coordinates to screen position
+  let x = map(call.location.longitude, SF_BOUNDS.min_lon, SF_BOUNDS.max_lon, 0, width);
+  let y = map(call.location.latitude, SF_BOUNDS.max_lat, SF_BOUNDS.min_lat, 0, height); // Invert Y axis
   
-  // Call types for coloring
-  let callTypeList = ["246", "415", "602", "915", "917", "219"];
-  let callType = random(callTypeList);
-  
-  // Priority levels
-  let priorityList = ['A', 'B', 'C'];
-  let priority = random(priorityList);
-  
-  // Create new particle system
+  // Create a new particle system
   let ps = new ParticleSystem(createVector(x, y));
-  ps.callType = callType;
-  ps.priority = priority;
   
-  // Set lifespan based on priority
-  if (priority === 'A') ps.lifespan = 180;
-  else if (priority === 'B') ps.lifespan = 150;
-  else ps.lifespan = 120;
+  // Set properties from the call
+  ps.callId = call.id;
+  ps.callType = call.callType;
+  ps.priority = call.priority;
+  ps.neighborhood = call.neighborhood;
   
+  // Add to our collection
   particleSystems.push(ps);
+  
+  return ps;
 }
 
-function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
-}
-
-// Keyboard controls
-function keyPressed() {
-  // Space to pause/play
-  if (key === ' ') {
-    noLoop();
-  } else if (key === 'r' || key === 'R') {
-    loop();
-  }
-}
-
+// Map SF call types to colors
 function getColorForCallType(callTypeCode) {
-  // Pastel color palette
+  // Pastel color palette mapped to SF call types
   switch(callTypeCode) {
     case "246": // SHOOTING
       return color(255, 182, 193); // Light pink
     case "917": // SHOTS FIRED
       return color(255, 218, 185); // Peach
-    case "219": // ROBBERY
+    case "219": // ROBBERY 
       return color(255, 255, 224); // Light yellow
     case "415": // DISTURBING THE PEACE
       return color(204, 255, 204); // Mint green
@@ -138,110 +322,11 @@ function getColorForCallType(callTypeCode) {
       return color(173, 216, 230); // Light blue
     case "915": // SUSPICIOUS PERSON
       return color(221, 160, 221); // Plum
+    case "222": // VEHICLE COLLISION
+      return color(255, 230, 200); // Light orange
+    case "852": // MEDICAL EMERGENCY
+      return color(180, 180, 255); // Lavender blue
     default:
       return color(230, 230, 250); // Lavender
   }
 }
-
-//========= PARTICLE SYSTEM CLASS ===========
-let ParticleSystem = function(origin) {
-  this.origin = origin.copy();
-  this.particles = [];
-  this.callType = "unknown";
-  this.priority = "C";
-  this.lifespan = 120;
-  this.age = 0;
-};
-
-ParticleSystem.prototype.run = function() {
-  this.age++;
-  
-  let len = this.particles.length;
-  for (let i = len - 1; i >= 0; i--) {
-    let particle = this.particles[i];
-    particle.callType = this.callType; // Pass call type for coloring
-    particle.run();
-    
-    if (particle.isDead()) {
-      this.particles.splice(i, 1);
-    }
-  }
-};
-
-ParticleSystem.prototype.applyForce = function(dir) {
-  let len = this.particles.length;
-  for(let i = 0; i < len; ++i){
-    this.particles[i].applyForce(dir);
-  }
-};
-
-ParticleSystem.prototype.addParticle = function() {
-  this.particles.push(new Particle(this.origin, this.callType));
-};
-
-ParticleSystem.prototype.isDead = function() {
-  return this.age > this.lifespan;
-};
-
-//========= PARTICLE CLASS ===========
-let Particle = function (pos, callType) {
-  this.loc = pos.copy();
-  
-  // More varied movement for better smoke effect
-  let vx = randomGaussian() * 0.25;
-  let vy = randomGaussian() * 0.25 - 0.7; // Less downward bias
-  
-  this.vel = createVector(vx, vy);
-  this.acc = createVector();
-  this.lifespan = 130.0; // Longer lifespan for more visible trails
-  this.callType = callType || "unknown";
-  this.radius = random(6, 15); // Smaller radius range for more delicate particles
-};
-
-Particle.prototype.run = function() {
-  this.update();
-  this.render();
-};
-
-Particle.prototype.render = function() {
-  // Apply color based on call type
-  let particleColor = getColorForCallType(this.callType);
-  
-  // Calculate size based on lifespan
-  let size = map(this.lifespan, 0, 100, 0, 1) * this.radius;
-  
-  // Draw soft circle
-  noStroke();
-  
-  // More subtle outer glow - fewer layers, less opacity
-  for (let i = 3; i > 0; i--) {
-    // Reduced opacity for glow layers
-    let alpha = map(i, 0, 3, 0, this.lifespan * 0.15);
-    fill(red(particleColor), green(particleColor), blue(particleColor), alpha);
-    // Smaller size multiplier for outer layers
-    ellipse(this.loc.x, this.loc.y, size * (i * 0.8), size * (i * 0.8));
-  }
-  
-  // Smaller, more defined core
-  fill(red(particleColor), green(particleColor), blue(particleColor), this.lifespan * 0.7);
-  ellipse(this.loc.x, this.loc.y, size * 0.6, size * 0.6);
-};
-
-Particle.prototype.applyForce = function(f) {
-  this.acc.add(f);
-};
-
-Particle.prototype.isDead = function () {
-  if (this.lifespan <= 0.0) {
-    return true;
-  } else {
-    return false;
-  }
-};
-
-Particle.prototype.update = function() {
-  this.vel.add(this.acc);
-  this.loc.add(this.vel);
-  this.lifespan -= 2.2; // Slower fade-out to maintain trails longer
-  this.acc.mult(0);
-};
