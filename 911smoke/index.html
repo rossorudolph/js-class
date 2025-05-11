@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SF 911 Dispatch Call Visualization</title>
+  <title>SF 911 Visualization</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/addons/p5.sound.min.js"></script>
   <style>
@@ -29,27 +29,24 @@
 <body>
   <script>
     /* 
-     * SF 911 Visualization - Real Data Version
-     * Visualizes actual 911 dispatch calls from SF's Open Data API
+     * SF 911 Visualization - Working Version
+     * Based on the smoke particles example with soft pastel colors
      */
     
     // Global variables
     let mic;
     let particleSystems = [];
-    let dispatchCalls = []; // Will store real or simulated call data
-    
-    // Playback control
-    let currentPlaybackTime = null;
-    let oldestTimestamp = null;
-    let newestTimestamp = null;
-    let playbackSpeed = 300; // Higher values = faster playback
-    let paused = false;
+    let callTypes = {};
     
     // Performance settings
     let maxParticleSystems = 15;
-    let maxParticlesPerSystem = 80;
+    let maxParticlesPerSystem = 80; // INCREASED from 60 to 80 for smoother appearance
     
-    // SF map boundaries (approximate)
+    // System creation timing (moved out of draw loop)
+    let lastSystemCreatedTime = 0;
+    let systemCreationInterval = 3000; // milliseconds between new systems
+    
+    // SF map boundaries (for realism)
     const SF_BOUNDS = {
       min_lon: -122.52,
       max_lon: -122.36,
@@ -57,21 +54,26 @@
       max_lat: 37.83
     };
     
-    // Data loading status
-    let isDataLoaded = false;
-    let loadingError = false;
-    let showDebugInfo = false;
-    
     function setup() {
       createCanvas(windowWidth, windowHeight);
       background(0);
       
-      // Setup microphone for interactivity
+      // Setup microphone
       mic = new p5.AudioIn();
       mic.start();
       
-      // Start loading real data
-      loadRealDispatchData();
+      // Load real data from SF API
+      //loadRealDispatchData();
+
+      // Create initial particle systems
+      createInitialParticleSystems();
+      
+      // Set up timer for creating new systems
+      setInterval(function() {
+        if (particleSystems.length < maxParticleSystems) {
+          addRandomParticleSystem();
+        }
+      }, systemCreationInterval);
       
       // Hide cursor after inactivity
       setTimeout(() => {
@@ -80,465 +82,96 @@
     }
     
     function draw() {
-      // Semi-transparent background for smoother trails
-      background(0, 15);
+      // IMPROVED: Even more transparent background for smoother transitions
+      background(0, 15); // Further reduced opacity from 18 to 15
       
-      if (!isDataLoaded) {
-        // Show loading animation
-        drawLoadingAnimation();
-        return;
-      }
-      
-      // Skip if paused
-      if (paused) return;
-      
-      // Get microphone level for wind effect
+      // Update wind based on mic input
       let micLevel = mic.getLevel() || 0.01;
       let dx = map(micLevel, 0, 0.1, -0.02, 0.02);
       let dy = map(micLevel, 0, 0.1, -0.01, -0.04);
       let wind = createVector(dx, dy);
       
-      // Update playback time
-      if (currentPlaybackTime === null) {
-        currentPlaybackTime = oldestTimestamp;
-      } else {
-        currentPlaybackTime += (deltaTime * playbackSpeed);
-        
-        // Loop back to beginning when finished
-        if (currentPlaybackTime > newestTimestamp) {
-          currentPlaybackTime = oldestTimestamp;
-          
-          // Reset all call activation flags
-          dispatchCalls.forEach(call => {
-            call.activated = false;
-            call.completed = false;
-          });
-          
-          // Clear all particle systems
-          particleSystems = [];
-        }
-      }
-      
-      // Check for calls that should be activated at current time
-      updateActiveCalls();
+      // CHANGED: Removed the periodic creation of new systems from the draw loop
+      // Instead, we'll create them on a timer to avoid frame-rate dependencies
       
       // Run all particle systems
       for (let i = particleSystems.length - 1; i >= 0; i--) {
         let ps = particleSystems[i];
         ps.applyForce(wind);
         ps.run();
-      }
-      
-      // Display debug info if enabled
-      if (showDebugInfo) {
-        displayDebugInfo();
-      }
-    }
-    
-    function drawLoadingAnimation() {
-      push();
-      translate(width/2, height/2);
-      rotate(frameCount * 0.05);
-      noFill();
-      stroke(255, 100);
-      strokeWeight(2);
-      ellipse(0, 0, 50, 50);
-      pop();
-    }
-    
-    // Display debug information when D key is held
-    function displayDebugInfo() {
-      fill(255);
-      textSize(14);
-      textAlign(LEFT, TOP);
-      
-      // Show playback time and status
-      let currentTimeStr = new Date(currentPlaybackTime).toLocaleTimeString();
-      text(`Playback Time: ${currentTimeStr}`, 10, 10);
-      text(`Active Systems: ${particleSystems.length}/${maxParticleSystems}`, 10, 30);
-      text(`Total Calls: ${dispatchCalls.length}`, 10, 50);
-      
-      // Display current call types being shown
-      let y = 80;
-      text("Active Call Types:", 10, y);
-      y += 20;
-      
-      let typeCounts = {};
-      particleSystems.forEach(ps => {
-        if (!typeCounts[ps.callType]) {
-          typeCounts[ps.callType] = 1;
-        } else {
-          typeCounts[ps.callType]++;
-        }
-      });
-      
-      for (let type in typeCounts) {
-        fill(getColorForCallType(type));
-        ellipse(20, y, 10, 10);
-        fill(255);
-        text(`${type}: ${typeCounts[type]}`, 35, y - 5);
-        y += 20;
-      }
-    }
-    
-    // Include our real data loading functions
-    
-    // This function will fetch real 911 dispatch data from SF's open data API
-    function loadRealDispatchData() {
-      console.log("Loading real dispatch data from SF Open Data...");
-      
-      // Construct the query to get data from the last 24 hours
-      // The $where clause uses SQL-like syntax and the NOW() function provides current time
-      const hoursToLoad = 24;
-      
-      // Craft API query with parameters
-      const query = {
-        "$limit": 200, // Limit to 200 records for performance
-        "$where": `call_date > (NOW() - '${hoursToLoad} hours'::interval)`, // Last 24 hours
-        "$order": "call_date DESC" // Most recent first
-      };
-      
-      // Convert the query object to URL parameters
-      const queryString = Object.entries(query)
-        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-        .join('&');
-      
-      // SF Open Data API endpoint
-      const url = `https://data.sfgov.org/resource/gnap-fj3t.json?${queryString}`;
-      
-      // Fetch data using p5's loadJSON function
-      loadJSON(url, 
-        // Success callback
-        function(data) {
-          console.log(`Successfully loaded ${data.length} records from SF Open Data`);
-          processRealData(data);
-        },
-        // Error callback
-        function(error) {
-          console.error("Error loading data from SF Open Data:", error);
-          console.log("Falling back to simulated data");
-          simulateDispatchData();
-        }
-      );
-    }
-    
-    // Process the real data and prepare it for visualization
-    function processRealData(data) {
-      console.log("Processing real 911 dispatch data...");
-      
-      // Check if we have valid data
-      if (!data || data.length === 0) {
-        console.warn("No valid data received, falling back to simulation");
-        simulateDispatchData();
-        return;
-      }
-      
-      // Clear existing calls and reset
-      dispatchCalls = [];
-      particleSystems = [];
-      
-      // Process each call in the dataset
-      data.forEach(call => {
-        // Skip calls without required data
-        if (!call.call_type || !call.received_datetime || !call.priority) {
-          return;
-        }
         
-        // Extract location coordinates if available
-        let location = null;
-        if (call.point && call.point.coordinates) {
-          location = {
-            longitude: call.point.coordinates[0],
-            latitude: call.point.coordinates[1]
-          };
-        } else {
-          // Skip calls without location data
-          return;
-        }
+        // REMOVED: No need to add particles here anymore, each system manages its own emission
         
-        // Check if the location is within SF bounds
-        if (location.longitude < SF_BOUNDS.min_lon || location.longitude > SF_BOUNDS.max_lon || 
-            location.latitude < SF_BOUNDS.min_lat || location.latitude > SF_BOUNDS.max_lat) {
-          return;
-        }
-        
-        // Convert the call to our internal format
-        let processedCall = {
-          id: call.cad_number || `call-${dispatchCalls.length}`,
-          callType: call.call_type.split(' - ')[0] || "unknown", // Extract the code portion
-          fullCallType: call.call_type,
-          receivedTime: new Date(call.received_datetime),
-          dispatchTime: call.dispatch_datetime ? new Date(call.dispatch_datetime) : null,
-          onSceneTime: call.onscene_datetime ? new Date(call.onscene_datetime) : null,
-          priority: call.priority,
-          location: location,
-          address: call.address,
-          neighborhood: call.analysis_neighborhood || call.supervisor_district || "Unknown",
-          status: call.disposition || "Active"
-        };
-        
-        // Calculate missing timestamps for visualization if needed
-        if (!processedCall.dispatchTime) {
-          // If no dispatch time, estimate based on priority (A=fast, C=slow)
-          const delayMinutes = processedCall.priority === 'A' ? 1 : 
-                              processedCall.priority === 'B' ? 3 : 5;
-          processedCall.dispatchTime = new Date(processedCall.receivedTime.getTime() + (delayMinutes * 60 * 1000));
-        }
-        
-        if (!processedCall.onSceneTime) {
-          // If no on-scene time, estimate based on priority
-          const responseMinutes = processedCall.priority === 'A' ? 5 : 
-                                 processedCall.priority === 'B' ? 10 : 15;
-          processedCall.onSceneTime = new Date(processedCall.dispatchTime.getTime() + (responseMinutes * 60 * 1000));
-        }
-        
-        // Add to our collection
-        dispatchCalls.push(processedCall);
-      });
-      
-      console.log(`Processed ${dispatchCalls.length} valid calls with location data`);
-      
-      // If we got enough data, start the visualization
-      if (dispatchCalls.length > 0) {
-        // Sort by time
-        dispatchCalls.sort((a, b) => a.receivedTime - b.receivedTime);
-        
-        // Start the playback
-        startPlayback();
-      } else {
-        console.warn("Not enough valid calls with location data, falling back to simulation");
-        simulateDispatchData();
-      }
-    }
-    
-    // Simulate data when real data is unavailable or insufficient
-    function simulateDispatchData() {
-      console.log("Generating simulated 911 dispatch data...");
-      
-      // Clear any existing data
-      dispatchCalls = [];
-      particleSystems = [];
-      
-      // Common call types in SF's system
-      const callTypeList = [
-        { code: "246", description: "SHOOTING" },
-        { code: "415", description: "DISTURBING THE PEACE" },
-        { code: "602", description: "TRESPASSING" },
-        { code: "915", description: "SUSPICIOUS PERSON" },
-        { code: "917", description: "SHOTS FIRED" },
-        { code: "219", description: "ROBBERY" },
-        { code: "222", description: "VEHICLE COLLISION" },
-        { code: "852", description: "MEDICAL EMERGENCY" }
-      ];
-      
-      // Common neighborhoods in SF
-      const neighborhoods = [
-        "TENDERLOIN", "MISSION", "SOMA", "NOB HILL", "DOWNTOWN", "SUNSET", 
-        "RICHMOND", "BAYVIEW", "CASTRO", "HAIGHT ASHBURY", "MARINA"
-      ];
-      
-      // Generate calls over the past 24 hours
-      const now = new Date();
-      const dayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-      
-      // Number of calls to generate
-      const numCalls = 150;
-      
-      for (let i = 0; i < numCalls; i++) {
-        // Random time in the past 24 hours
-        const callTime = new Date(dayAgo.getTime() + Math.random() * (now.getTime() - dayAgo.getTime()));
-        
-        // Random call type
-        const callTypeIndex = Math.floor(Math.random() * callTypeList.length);
-        const callType = callTypeList[callTypeIndex];
-        
-        // Random priority (weighted to have more C than A)
-        const priorityRoll = Math.random();
-        const priority = priorityRoll < 0.2 ? 'A' : (priorityRoll < 0.5 ? 'B' : 'C');
-        
-        // Random location within SF bounds
-        const longitude = SF_BOUNDS.min_lon + Math.random() * (SF_BOUNDS.max_lon - SF_BOUNDS.min_lon);
-        const latitude = SF_BOUNDS.min_lat + Math.random() * (SF_BOUNDS.max_lat - SF_BOUNDS.min_lat);
-        
-        // Random neighborhood
-        const neighborhood = neighborhoods[Math.floor(Math.random() * neighborhoods.length)];
-        
-        // Calculate dispatch and onscene times based on priority
-        const dispatchDelay = priority === 'A' ? 1 : (priority === 'B' ? 3 : 5); // minutes
-        const responseTime = priority === 'A' ? 5 : (priority === 'B' ? 10 : 15); // minutes
-        
-        const dispatchTime = new Date(callTime.getTime() + (dispatchDelay * 60 * 1000));
-        const onSceneTime = new Date(dispatchTime.getTime() + (responseTime * 60 * 1000));
-        
-        // Create the simulated call record
-        dispatchCalls.push({
-          id: `sim-${i}`,
-          callType: callType.code,
-          fullCallType: `${callType.code} - ${callType.description}`,
-          receivedTime: callTime,
-          dispatchTime: dispatchTime,
-          onSceneTime: onSceneTime,
-          priority: priority,
-          location: {
-            longitude: longitude,
-            latitude: latitude
-          },
-          address: `${Math.floor(Math.random() * 2000)} BLOCK OF ${["MARKET", "MISSION", "FOLSOM", "VALENCIA", "HAIGHT", "GEARY"][Math.floor(Math.random() * 6)]} ST`,
-          neighborhood: neighborhood,
-          status: Math.random() < 0.8 ? "HAN - HANDLED" : "GOA - GONE ON ARRIVAL"
-        });
-      }
-      
-      // Sort by time
-      dispatchCalls.sort((a, b) => a.receivedTime - b.receivedTime);
-      
-      console.log(`Generated ${dispatchCalls.length} simulated calls`);
-      
-      // Start the playback
-      startPlayback();
-    }
-    
-    // Setup playback of 911 call data
-    function startPlayback() {
-      console.log("Starting playback of dispatch calls...");
-      
-      if (!dispatchCalls || dispatchCalls.length === 0) {
-        console.error("No dispatch calls to play back");
-        return;
-      }
-      
-      // Set playback boundaries
-      oldestTimestamp = dispatchCalls[0].receivedTime.getTime();
-      newestTimestamp = dispatchCalls[dispatchCalls.length - 1].receivedTime.getTime();
-      
-      // Start from the beginning
-      currentPlaybackTime = oldestTimestamp;
-      
-      // Reset all activation flags
-      dispatchCalls.forEach(call => {
-        call.activated = false;
-        call.completed = false;
-      });
-      
-      console.log(`Playback range: ${new Date(oldestTimestamp).toLocaleString()} to ${new Date(newestTimestamp).toLocaleString()}`);
-      console.log("Playback ready");
-      
-      // Data is loaded, start visualization
-      isDataLoaded = true;
-    }
-    
-    // Check for calls that should be activated or deactivated based on current playback time
-    function updateActiveCalls() {
-      // Check each call
-      for (let i = 0; i < dispatchCalls.length; i++) {
-        let call = dispatchCalls[i];
-        
-        // Get timestamps
-        let receivedTime = call.receivedTime.getTime();
-        let onSceneTime = call.onSceneTime.getTime();
-        
-        // If the call should be active now and hasn't been activated
-        if (receivedTime <= currentPlaybackTime && !call.activated) {
-          // Mark as activated
-          call.activated = true;
-          
-          // Only create a particle system if we're under the limit
-          if (particleSystems.length < maxParticleSystems) {
-            createParticleSystemForCall(call);
-          }
-        }
-        
-        // If the call has reached its on-scene time, mark as completed
-        if (onSceneTime <= currentPlaybackTime && !call.completed) {
-          call.completed = true;
-        }
-      }
-      
-      // Update any active particle systems
-      for (let i = particleSystems.length - 1; i >= 0; i--) {
-        let ps = particleSystems[i];
-        
-        // Find the associated call
-        let call = dispatchCalls.find(c => c.id === ps.callId);
-        
-        // Remove the system if the call is completed
-        if (call && call.completed) {
+        // Check if we've reached the onscene time
+        if (ps.hasReachedOnScene()) {
           particleSystems.splice(i, 1);
         }
       }
+      
+      // Display debug info if enabled
+      displayDebugInfo();
     }
     
-    // Create a particle system for a specific call
-    function createParticleSystemForCall(call) {
-      // Convert geographic coordinates to screen position
-      let x = map(call.location.longitude, SF_BOUNDS.min_lon, SF_BOUNDS.max_lon, 0, width);
-      let y = map(call.location.latitude, SF_BOUNDS.max_lat, SF_BOUNDS.min_lat, 0, height); // Invert Y axis
-      
-      // Create a new particle system
-      let ps = new ParticleSystem(createVector(x, y));
-      
-      // Set properties from the call
-      ps.callId = call.id;
-      ps.callType = call.callType;
-      ps.priority = call.priority;
-      ps.neighborhood = call.neighborhood;
-      
-      // Add to our collection
-      particleSystems.push(ps);
-      
-      return ps;
-    }
-    
-    // Map SF call types to colors
-    function getColorForCallType(callTypeCode) {
-      // Pastel color palette mapped to SF call types
-      switch(callTypeCode) {
-        case "246": // SHOOTING
-          return color(255, 182, 193); // Light pink
-        case "917": // SHOTS FIRED
-          return color(255, 218, 185); // Peach
-        case "219": // ROBBERY 
-          return color(255, 255, 224); // Light yellow
-        case "415": // DISTURBING THE PEACE
-          return color(204, 255, 204); // Mint green
-        case "602": // TRESPASSING
-          return color(173, 216, 230); // Light blue
-        case "915": // SUSPICIOUS PERSON
-          return color(221, 160, 221); // Plum
-        case "222": // VEHICLE COLLISION
-          return color(255, 230, 200); // Light orange
-        case "852": // MEDICAL EMERGENCY
-          return color(180, 180, 255); // Lavender blue
-        default:
-          return color(230, 230, 250); // Lavender
+    function createInitialParticleSystems() {
+      // Create several initial particle systems
+      for (let i = 0; i < 5; i++) { // REDUCED from 10 to 5 for less initial chaos
+        // Stagger the creation slightly to avoid all appearing at once
+        setTimeout(() => {
+          addRandomParticleSystem();
+        }, i * 300); // Add a new system every 300ms
       }
     }
     
-    // Keyboard controls
+    function addRandomParticleSystem() {
+      // Random position on screen
+      let x = random(width);
+      let y = random(height);
+      
+      // Call types for coloring
+      let callTypeList = ["246", "415", "602", "915", "917", "219"];
+      let callType = random(callTypeList);
+      
+      // Priority levels
+      let priorityList = ['A', 'B', 'C'];
+      let priority = random(priorityList);
+      
+      // Create new particle system
+      let ps = new ParticleSystem(createVector(x, y));
+      ps.callType = callType;
+      ps.priority = priority;
+      
+      // ADDED: Generate dispatch and onscene times
+      // Current frame count becomes dispatch time
+      ps.dispatchTime = frameCount;
+      
+      // Set onscene time based on priority (A = fast response, C = slower)
+      if (priority === 'A') {
+        ps.onSceneTime = ps.dispatchTime + random(300, 500); // Higher priority calls get faster response
+      } else if (priority === 'B') {
+        ps.onSceneTime = ps.dispatchTime + random(500, 700);
+      } else {
+        ps.onSceneTime = ps.dispatchTime + random(700, 900); // Lower priority calls wait longer
+      }
+      
+      particleSystems.push(ps);
+    }
+    
+    function windowResized() {
+      resizeCanvas(windowWidth, windowHeight);
+    }
+    
+    // ADDED: Display debug info when holding 'D' key
     function keyPressed() {
       // Space to pause/play
       if (key === ' ') {
-        paused = !paused;
-      } 
-      // 'R' to reset playback
-      else if (key === 'r' || key === 'R') {
-        currentPlaybackTime = oldestTimestamp;
-        dispatchCalls.forEach(call => {
-          call.activated = false;
-          call.completed = false;
-        });
-        particleSystems = [];
+        noLoop();
+      } else if (key === 'r' || key === 'R') {
+        loop();
       }
-      // Show debug info while D is pressed
-      else if (key === 'd' || key === 'D') {
+      
+      // Hold 'D' key to show debug info (current frame count and active particle systems)
+      if (key === 'd' || key === 'D') {
         showDebugInfo = true;
-      }
-      // +/- to change playback speed
-      else if (key === '+' || key === '=') {
-        playbackSpeed = min(playbackSpeed * 1.5, 2000);
-      }
-      else if (key === '-' || key === '_') {
-        playbackSpeed = max(playbackSpeed * 0.75, 10);
       }
     }
     
@@ -548,8 +181,47 @@
       }
     }
     
-    function windowResized() {
-      resizeCanvas(windowWidth, windowHeight);
+    // Optional debug display function
+    let showDebugInfo = false;
+    
+    function displayDebugInfo() {
+      if (!showDebugInfo) return;
+      
+      fill(255);
+      textSize(14);
+      textAlign(LEFT, TOP);
+      text("Frame: " + frameCount, 10, 10);
+      text("Active Systems: " + particleSystems.length, 10, 30);
+      
+      // Display info for each particle system
+      let y = 50;
+      for (let i = 0; i < min(particleSystems.length, 10); i++) {
+        let ps = particleSystems[i];
+        text("System " + i + ": " + ps.callType + " (Priority " + ps.priority + ")", 10, y);
+        text("  Dispatch: " + ps.dispatchTime + ", OnScene: " + ps.onSceneTime, 10, y + 20);
+        text("  Remaining: " + (ps.onSceneTime - frameCount) + " frames", 10, y + 40);
+        y += 60;
+      }
+    }
+    
+    function getColorForCallType(callTypeCode) {
+      // Pastel color palette
+      switch(callTypeCode) {
+        case "246": // SHOOTING
+          return color(255, 182, 193); // Light pink
+        case "917": // SHOTS FIRED
+          return color(255, 218, 185); // Peach
+        case "219": // ROBBERY
+          return color(255, 255, 224); // Light yellow
+        case "415": // DISTURBING THE PEACE
+          return color(204, 255, 204); // Mint green
+        case "602": // TRESPASSING
+          return color(173, 216, 230); // Light blue
+        case "915": // SUSPICIOUS PERSON
+          return color(221, 160, 221); // Plum
+        default:
+          return color(230, 230, 250); // Lavender
+      }
     }
     
     //========= PARTICLE SYSTEM CLASS ===========
@@ -557,30 +229,34 @@
       this.origin = origin.copy();
       this.particles = [];
       this.callType = "unknown";
-      this.callId = null;
       this.priority = "C";
-      this.neighborhood = "";
+      this.dispatchTime = 0;
+      this.onSceneTime = 0;
       this.age = 0;
       
-      // Create initial particles
-      this.initialParticles = 40; 
+      // IMPROVED: Create many more initial particles with staggered lifespans
+      this.initialParticles = 40; // Doubled from 20
       
-      // Track emission timing
+      // Track emission timing for consistency
       this.lastEmissionTime = 0;
       this.emissionRate = 15; // Frames between emissions
       
-      // Create initial particles with staggered lifespans
+      // Create the initial particle batch right away in constructor
       for (let i = 0; i < this.initialParticles; i++) {
+        // Create particles with staggered lifespans
         let offset = createVector(random(-8, 8), random(-8, 8));
         let startPos = p5.Vector.add(origin, offset);
         
+        // Create particle with pre-aged lifespan to avoid all appearing at once
         let p = new Particle(startPos, this.callType);
         
-        // Pre-age some particles
+        // Pre-age some particles to create a natural distribution
         if (i > this.initialParticles * 0.3) {
+          // Make 70% of initial particles appear pre-aged with varied lifespans
           let preAge = random(10, 100);
           p.lifespan -= preAge;
           
+          // Also move them a bit to simulate they've been traveling
           p.loc.x += p.vel.x * preAge * 0.1;
           p.loc.y += p.vel.y * preAge * 0.1;
         }
@@ -592,27 +268,30 @@
     ParticleSystem.prototype.run = function() {
       this.age++;
       
-      // Emit new particles on a regular schedule
+      // IMPROVED: More consistent emission pattern
       if (frameCount - this.lastEmissionTime >= this.emissionRate) {
+        // Time to emit new particles
         this.lastEmissionTime = frameCount;
         
-        // Emission rate based on priority
+        // Emit a batch of particles based on priority
         let batchSize = (this.priority === 'A') ? 10 : 
-                       (this.priority === 'B') ? 8 : 6;
+                        (this.priority === 'B') ? 8 : 6;
         
+        // Only emit if we haven't reached capacity
         if (this.particles.length < maxParticlesPerSystem) {
           for (let i = 0; i < batchSize; i++) {
+            // If we'd exceed the max, stop adding
             if (this.particles.length >= maxParticlesPerSystem) break;
             this.addParticle();
           }
         }
       }
       
-      // Update existing particles
+      // Process existing particles
       let len = this.particles.length;
       for (let i = len - 1; i >= 0; i--) {
         let particle = this.particles[i];
-        particle.callType = this.callType;
+        particle.callType = this.callType; // Pass call type for coloring
         particle.run();
         
         if (particle.isDead()) {
@@ -629,35 +308,44 @@
     };
     
     ParticleSystem.prototype.addParticle = function() {
+      // IMPROVED: Greater position variation
       let offset = createVector(random(-10, 10), random(-10, 10));
       let startPos = p5.Vector.add(this.origin, offset);
       
       this.particles.push(new Particle(startPos, this.callType));
     };
     
+    // CHANGED: Now checking if we've reached the onScene time instead of using age/lifespan
+    ParticleSystem.prototype.hasReachedOnScene = function() {
+      return frameCount >= this.onSceneTime;
+    };
+    
     //========= PARTICLE CLASS ===========
+    // CHANGED: Particle constructor for better smoke effect
     let Particle = function (pos, callType) {
       this.loc = pos.copy();
       
-      // Movement parameters
+      // Adjusted movement - less horizontal drift
       let vx = randomGaussian() * 0.15;
       let vy = randomGaussian() * 0.3 - 0.65;
       
       this.vel = createVector(vx, vy);
       this.acc = createVector();
       
-      // Lifecycle parameters
-      this.maxLifespan = random(140, 160);
-      this.lifespan = this.maxLifespan;
+      // IMPROVED: More varied lifespan with better distribution
+      this.maxLifespan = random(140, 160); // Longer max lifespan
+      this.lifespan = this.maxLifespan; // Start at max
       
       this.callType = callType || "unknown";
       this.radius = random(6, 15);
+      
+      // ADDED: Variable to track opacity consistency
       this.opacityMultiplier = random(0.9, 1.1);
       
-      // State tracking
-      this.state = "fade-in";
-      this.fadeInDuration = random(10, 20);
-      this.fadeOutStart = this.maxLifespan * random(0.2, 0.3);
+      // Pre-animation state tracker
+      this.state = "fade-in"; // States: "fade-in", "active", "fade-out"
+      this.fadeInDuration = random(10, 20); // Frames to fade in
+      this.fadeOutStart = this.maxLifespan * random(0.2, 0.3); // When to start fading out
     };
     
     Particle.prototype.run = function() {
@@ -665,47 +353,54 @@
       this.render();
     };
     
+    // IMPROVED: Completely revised render function for smoother transitions
     Particle.prototype.render = function() {
-      // Get color for this call type
+      // Apply color based on call type
       let particleColor = getColorForCallType(this.callType);
       
-      // Calculate alpha based on state
+      // Calculate alpha based on particle state
       let alpha = 255;
       
       if (this.state === "fade-in") {
+        // During fade-in, gradually increase from 0 to full alpha
         let progress = (this.maxLifespan - this.lifespan) / this.fadeInDuration;
         alpha = map(progress, 0, 1, 0, 255);
         if (progress >= 1) {
           this.state = "active";
         }
       } else if (this.state === "active") {
+        // Full opacity during active state
         alpha = 255;
+        // Check if it's time to start fading out
         if (this.lifespan < this.fadeOutStart) {
           this.state = "fade-out";
         }
       } else if (this.state === "fade-out") {
+        // During fade-out, gradually decrease to 0
         let progress = this.lifespan / this.fadeOutStart;
         alpha = map(progress, 0, 1, 0, 255);
       }
       
-      // Apply individual particle variation
+      // Apply individual particle's opacity variation
       alpha *= this.opacityMultiplier;
       
-      // Calculate size based on lifespan
+      // Calculate size based on lifespan - smoother transition
       let lifeRatio = this.lifespan / this.maxLifespan;
       let size = lifeRatio * this.radius;
       
-      // Draw particle
+      // Draw soft circle
       noStroke();
       
-      // Outer glow
+      // More subtle outer glow - fewer layers, less opacity
       for (let i = 3; i > 0; i--) {
+        // Reduced opacity for glow layers
         let layerAlpha = (alpha * 0.15) * (i / 3);
         fill(red(particleColor), green(particleColor), blue(particleColor), layerAlpha);
+        // Smaller size multiplier for outer layers
         ellipse(this.loc.x, this.loc.y, size * (i * 0.8), size * (i * 0.8));
       }
       
-      // Core
+      // Smaller, more defined core
       fill(red(particleColor), green(particleColor), blue(particleColor), alpha * 0.7);
       ellipse(this.loc.x, this.loc.y, size * 0.6, size * 0.6);
     };
@@ -715,430 +410,22 @@
     };
     
     Particle.prototype.isDead = function () {
-      return this.lifespan <= 0;
+      if (this.lifespan <= 0.0) {
+        return true;
+      } else {
+        return false;
+      }
     };
     
+    // CHANGED: Slower fade-out
     Particle.prototype.update = function() {
       this.vel.add(this.acc);
       this.loc.add(this.vel);
-      
-      this.lifespan -= 1.5 + random(-0.1, 0.1);
+      this.lifespan -= 2.2; // CHANGED: Slower fade-out (was 3.5)
       this.acc.mult(0);
     };
   </script>
+  <script src="sf-911-data-fetch.js"></script>
+  
 </body>
-</html><!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SF 911 Dispatch Call Visualization</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/addons/p5.sound.min.js"></script>
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      background-color: #000;
-    }
-    canvas {
-      display: block;
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-    }
-    .cursor-hidden {
-      cursor: none;
-    }
-  </style>
-</head>
-<body>
-  <script>
-    /* 
-     * SF 911 Visualization - Real Data Version
-     * Visualizes actual 911 dispatch calls from SF's Open Data API
-     */
-    
-    // Global variables
-    let mic;
-    let particleSystems = [];
-    let dispatchCalls = []; // Will store real or simulated call data
-    
-    // Playback control
-    let currentPlaybackTime = null;
-    let oldestTimestamp = null;
-    let newestTimestamp = null;
-    let playbackSpeed = 300; // Higher values = faster playback
-    let paused = false;
-    
-    // Performance settings
-    let maxParticleSystems = 15;
-    let maxParticlesPerSystem = 80;
-    
-    // SF map boundaries (approximate)
-    const SF_BOUNDS = {
-      min_lon: -122.52,
-      max_lon: -122.36,
-      min_lat: 37.70,
-      max_lat: 37.83
-    };
-    
-    // Data loading status
-    let isDataLoaded = false;
-    let loadingError = false;
-    
-    function setup() {
-      createCanvas(windowWidth, windowHeight);
-      background(0);
-      
-      // Setup microphone for interactivity
-      mic = new p5.AudioIn();
-      mic.start();
-      
-      // Start loading real data
-      loadRealDispatchData();
-      
-      // Hide cursor after inactivity
-      setTimeout(() => {
-        document.body.classList.add('cursor-hidden');
-      }, 3000);
-    }
-    
-    function draw() {
-      // Semi-transparent background for smoother trails
-      background(0, 15);
-      
-      if (!isDataLoaded) {
-        // Show loading animation
-        drawLoadingAnimation();
-        return;
-      }
-      
-      // Skip if paused
-      if (paused) return;
-      
-      // Get microphone level for wind effect
-      let micLevel = mic.getLevel() || 0.01;
-      let dx = map(micLevel, 0, 0.1, -0.02, 0.02);
-      let dy = map(micLevel, 0, 0.1, -0.01, -0.04);
-      let wind = createVector(dx, dy);
-      
-      // Update playback time
-      if (currentPlaybackTime === null) {
-        currentPlaybackTime = oldestTimestamp;
-      } else {
-        currentPlaybackTime += (deltaTime * playbackSpeed);
-        
-        // Loop back to beginning when finished
-        if (currentPlaybackTime > newestTimestamp) {
-          currentPlaybackTime = oldestTimestamp;
-          
-          // Reset all call activation flags
-          dispatchCalls.forEach(call => {
-            call.activated = false;
-            call.completed = false;
-          });
-          
-          // Clear all particle systems
-          particleSystems = [];
-        }
-      }
-      
-      // Check for calls that should be activated at current time
-      updateActiveCalls();
-      
-      // Run all particle systems
-      for (let i = particleSystems.length - 1; i >= 0; i--) {
-        let ps = particleSystems[i];
-        ps.applyForce(wind);
-        ps.run();
-      }
-      
-      // Display debug info if enabled
-      if (showDebugInfo) {
-        displayDebugInfo();
-      }
-    }
-    
-    function drawLoadingAnimation() {
-      push();
-      translate(width/2, height/2);
-      rotate(frameCount * 0.05);
-      noFill();
-      stroke(255, 100);
-      strokeWeight(2);
-      ellipse(0, 0, 50, 50);
-      pop();
-    }
-    
-    // Include our real data loading functions
-    
-    // This function will fetch real 911 dispatch data from SF's open data API
-    function loadRealDispatchData() {
-      console.log("Loading real dispatch data from SF Open Data...");
-      
-      // Construct the query to get data from the last 24 hours
-      // The $where clause uses SQL-like syntax and the NOW() function provides current time
-      const hoursToLoad = 24;
-      
-      // Craft API query with parameters
-      const query = {
-        "$limit": 200, // Limit to 200 records for performance
-        "$where": `call_date > (NOW() - '${hoursToLoad} hours'::interval)`, // Last 24 hours
-        "$order": "call_date DESC" // Most recent first
-      };
-      
-      // Convert the query object to URL parameters
-      const queryString = Object.entries(query)
-        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-        .join('&');
-      
-      // SF Open Data API endpoint
-      const url = `https://data.sfgov.org/resource/gnap-fj3t.json?${queryString}`;
-      
-      // Fetch data using p5's loadJSON function
-      loadJSON(url, 
-        // Success callback
-        function(data) {
-          console.log(`Successfully loaded ${data.length} records from SF Open Data`);
-          processRealData(data);
-        },
-        // Error callback
-        function(error) {
-          console.error("Error loading data from SF Open Data:", error);
-          console.log("Falling back to simulated data");
-          simulateDispatchData();
-        }
-      );
-    }
-    
-    // Process the real data and prepare it for visualization
-    function processRealData(data) {
-      console.log("Processing real 911 dispatch data...");
-      
-      // Check if we have valid data
-      if (!data || data.length === 0) {
-        console.warn("No valid data received, falling back to simulation");
-        simulateDispatchData();
-        return;
-      }
-      
-      // Clear existing calls and reset
-      dispatchCalls = [];
-      particleSystems = [];
-      
-      // Process each call in the dataset
-      data.forEach(call => {
-        // Skip calls without required data
-        if (!call.call_type || !call.received_datetime || !call.priority) {
-          return;
-        }
-        
-        // Extract location coordinates if available
-        let location = null;
-        if (call.point && call.point.coordinates) {
-          location = {
-            longitude: call.point.coordinates[0],
-            latitude: call.point.coordinates[1]
-          };
-        } else {
-          // Skip calls without location data
-          return;
-        }
-        
-        // Check if the location is within SF bounds
-        if (location.longitude < SF_BOUNDS.min_lon || location.longitude > SF_BOUNDS.max_lon || 
-            location.latitude < SF_BOUNDS.min_lat || location.latitude > SF_BOUNDS.max_lat) {
-          return;
-        }
-        
-        // Convert the call to our internal format
-        let processedCall = {
-          id: call.cad_number || `call-${dispatchCalls.length}`,
-          callType: call.call_type.split(' - ')[0] || "unknown", // Extract the code portion
-          fullCallType: call.call_type,
-          receivedTime: new Date(call.received_datetime),
-          dispatchTime: call.dispatch_datetime ? new Date(call.dispatch_datetime) : null,
-          onSceneTime: call.onscene_datetime ? new Date(call.onscene_datetime) : null,
-          priority: call.priority,
-          location: location,
-          address: call.address,
-          neighborhood: call.analysis_neighborhood || call.supervisor_district || "Unknown",
-          status: call.disposition || "Active"
-        };
-        
-        // Calculate missing timestamps for visualization if needed
-        if (!processedCall.dispatchTime) {
-          // If no dispatch time, estimate based on priority (A=fast, C=slow)
-          const delayMinutes = processedCall.priority === 'A' ? 1 : 
-                              processedCall.priority === 'B' ? 3 : 5;
-          processedCall.dispatchTime = new Date(processedCall.receivedTime.getTime() + (delayMinutes * 60 * 1000));
-        }
-        
-        if (!processedCall.onSceneTime) {
-          // If no on-scene time, estimate based on priority
-          const responseMinutes = processedCall.priority === 'A' ? 5 : 
-                                 processedCall.priority === 'B' ? 10 : 15;
-          processedCall.onSceneTime = new Date(processedCall.dispatchTime.getTime() + (responseMinutes * 60 * 1000));
-        }
-        
-        // Add to our collection
-        dispatchCalls.push(processedCall);
-      });
-      
-      console.log(`Processed ${dispatchCalls.length} valid calls with location data`);
-      
-      // If we got enough data, start the visualization
-      if (dispatchCalls.length > 0) {
-        // Sort by time
-        dispatchCalls.sort((a, b) => a.receivedTime - b.receivedTime);
-        
-        // Start the playback
-        startPlayback();
-      } else {
-        console.warn("Not enough valid calls with location data, falling back to simulation");
-        simulateDispatchData();
-      }
-    }
-    
-    // Simulate data when real data is unavailable or insufficient
-    function simulateDispatchData() {
-      console.log("Generating simulated 911 dispatch data...");
-      
-      // Clear any existing data
-      dispatchCalls = [];
-      particleSystems = [];
-      
-      // Common call types in SF's system
-      const callTypeList = [
-        { code: "246", description: "SHOOTING" },
-        { code: "415", description: "DISTURBING THE PEACE" },
-        { code: "602", description: "TRESPASSING" },
-        { code: "915", description: "SUSPICIOUS PERSON" },
-        { code: "917", description: "SHOTS FIRED" },
-        { code: "219", description: "ROBBERY" },
-        { code: "222", description: "VEHICLE COLLISION" },
-        { code: "852", description: "MEDICAL EMERGENCY" }
-      ];
-      
-      // Common neighborhoods in SF
-      const neighborhoods = [
-        "TENDERLOIN", "MISSION", "SOMA", "NOB HILL", "DOWNTOWN", "SUNSET", 
-        "RICHMOND", "BAYVIEW", "CASTRO", "HAIGHT ASHBURY", "MARINA"
-      ];
-      
-      // Generate calls over the past 24 hours
-      const now = new Date();
-      const dayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-      
-      // Number of calls to generate
-      const numCalls = 150;
-      
-      for (let i = 0; i < numCalls; i++) {
-        // Random time in the past 24 hours
-        const callTime = new Date(dayAgo.getTime() + Math.random() * (now.getTime() - dayAgo.getTime()));
-        
-        // Random call type
-        const callTypeIndex = Math.floor(Math.random() * callTypeList.length);
-        const callType = callTypeList[callTypeIndex];
-        
-        // Random priority (weighted to have more C than A)
-        const priorityRoll = Math.random();
-        const priority = priorityRoll < 0.2 ? 'A' : (priorityRoll < 0.5 ? 'B' : 'C');
-        
-        // Random location within SF bounds
-        const longitude = SF_BOUNDS.min_lon + Math.random() * (SF_BOUNDS.max_lon - SF_BOUNDS.min_lon);
-        const latitude = SF_BOUNDS.min_lat + Math.random() * (SF_BOUNDS.max_lat - SF_BOUNDS.min_lat);
-        
-        // Random neighborhood
-        const neighborhood = neighborhoods[Math.floor(Math.random() * neighborhoods.length)];
-        
-        // Calculate dispatch and onscene times based on priority
-        const dispatchDelay = priority === 'A' ? 1 : (priority === 'B' ? 3 : 5); // minutes
-        const responseTime = priority === 'A' ? 5 : (priority === 'B' ? 10 : 15); // minutes
-        
-        const dispatchTime = new Date(callTime.getTime() + (dispatchDelay * 60 * 1000));
-        const onSceneTime = new Date(dispatchTime.getTime() + (responseTime * 60 * 1000));
-        
-        // Create the simulated call record
-        dispatchCalls.push({
-          id: `sim-${i}`,
-          callType: callType.code,
-          fullCallType: `${callType.code} - ${callType.description}`,
-          receivedTime: callTime,
-          dispatchTime: dispatchTime,
-          onSceneTime: onSceneTime,
-          priority: priority,
-          location: {
-            longitude: longitude,
-            latitude: latitude
-          },
-          address: `${Math.floor(Math.random() * 2000)} BLOCK OF ${["MARKET", "MISSION", "FOLSOM", "VALENCIA", "HAIGHT", "GEARY"][Math.floor(Math.random() * 6)]} ST`,
-          neighborhood: neighborhood,
-          status: Math.random() < 0.8 ? "HAN - HANDLED" : "GOA - GONE ON ARRIVAL"
-        });
-      }
-      
-      // Sort by time
-      dispatchCalls.sort((a, b) => a.receivedTime - b.receivedTime);
-      
-      console.log(`Generated ${dispatchCalls.length} simulated calls`);
-      
-      // Start the playback
-      startPlayback();
-    }
-    
-    // Setup playback of 911 call data
-    function startPlayback() {
-      console.log("Starting playback of dispatch calls...");
-      
-      if (!dispatchCalls || dispatchCalls.length === 0) {
-        console.error("No dispatch calls to play back");
-        return;
-      }
-      
-      // Set playback boundaries
-      oldestTimestamp = dispatchCalls[0].receivedTime.getTime();
-      newestTimestamp = dispatchCalls[dispatchCalls.length - 1].receivedTime.getTime();
-      
-      // Start from the beginning
-      currentPlaybackTime = oldestTimestamp;
-      
-      // Reset all activation flags
-      dispatchCalls.forEach(call => {
-        call.activated = false;
-        call.completed = false;
-      });
-      
-      console.log(`Playback range: ${new Date(oldestTimestamp).toLocaleString()} to ${new Date(newestTimestamp).toLocaleString()}`);
-      console.log("Playback ready");
-      
-      // Data is loaded, start visualization
-      isDataLoaded = true;
-    }
-    
-    // Check for calls that should be activated or deactivated based on current playback time
-    function updateActiveCalls() {
-      // Check each call
-      for (let i = 0; i < dispatchCalls.length; i++) {
-        let call = dispatchCalls[i];
-        
-        // Get timestamps
-        let receivedTime = call.receivedTime.getTime();
-        let onSceneTime = call.onSceneTime.getTime();
-        
-        // If the call should be active now and hasn't been activated
-        if (receivedTime <= currentPlaybackTime && !call.activated) {
-          // Mark as activated
-          call.activated = true;
-          
-          // Only create a particle system if we're under the limit
-          if (particleSystems.length < maxParticleSystems) {
-            createParticleSystemForCall(call);
-          }
-        }
-        
-        // If the call has reached its on-scene time, mark as complete
+</html>
