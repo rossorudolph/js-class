@@ -19,6 +19,10 @@ let mouseX = 0;
 let mouseY = 0;
 let currentChordIndex = 0;
 
+// Effect intensity parameters that will influence visuals
+let granularIntensity = 0;
+let lfoIntensity = 0;
+
 // Visual parameters
 const chordColors = [
   { main: '#834ebd', accent: '#af82cf' }, // Chord 1: C4 A3 E3 - purple
@@ -494,16 +498,24 @@ function triggerVisualChord(index) {
 }
 
 function triggerVisualBass() {
-  // Add bass impact
-  particles.push({
-    x: canvas.width / 2,
-    y: canvas.height / 2,
-    size: canvas.width * 0.3,
-    color: '#ffffff',
-    decay: 0.96,
-    speed: 0.5,
-    alpha: 0.08
-  });
+  // Add subtle bass impact without center pulse
+  // Instead of a center pulse, add a few small particles at random positions
+  for (let i = 0; i < 3; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = Math.random() * (canvas.width * 0.3);
+    
+    particles.push({
+      x: canvas.width/2 + Math.cos(angle) * distance,
+      y: canvas.height/2 + Math.sin(angle) * distance,
+      size: 10 + Math.random() * 15,
+      color: '#ffffff',
+      decay: 0.9,
+      speed: 0.5,
+      alpha: 0.04,
+      blur: true,
+      blurAmount: 8
+    });
+  }
 }
 
 function triggerVisualArpeggio(note) {
@@ -693,6 +705,53 @@ function animateVisuals() {
     glitchIntensity *= 0.95;
   }
   
+  // Add granular synthesis visual effect based on granularIntensity
+  if (isPlaying && granularIntensity > 0) {
+    ctx.save();
+    
+    // Create more noise/static as granular intensity increases
+    const noiseCount = Math.floor(granularIntensity * 20) + 1;
+    const noiseOpacity = granularIntensity * 0.1;
+    
+    ctx.fillStyle = `rgba(255, 255, 255, ${noiseOpacity})`;
+    
+    for (let i = 0; i < noiseCount; i++) {
+      const x = Math.random() * canvas.width;
+      const y = Math.random() * canvas.height;
+      const width = Math.random() * (granularIntensity * 20) + 1;
+      const height = Math.random() * (granularIntensity * 5) + 1;
+      
+      ctx.fillRect(x, y, width, height);
+    }
+    
+    ctx.restore();
+  }
+  
+  // Add LFO visual effect based on lfoIntensity
+  if (isPlaying && lfoIntensity > 0) {
+    ctx.save();
+    
+    // Create vertical scan lines that intensify with LFO
+    const lineCount = Math.floor(lfoIntensity * 10) + 2;
+    const lineOpacity = lfoIntensity * 0.05;
+    const lineWidth = canvas.width / (lineCount * 2);
+    
+    // Move the scan lines based on time
+    const timeOffset = Date.now() * 0.001;
+    
+    ctx.fillStyle = `rgba(255, 255, 255, ${lineOpacity})`;
+    
+    for (let i = 0; i < lineCount; i++) {
+      // Calculate a position that moves over time
+      const position = (i / lineCount + timeOffset * (0.1 + lfoIntensity * 0.2)) % 1;
+      const x = position * canvas.width;
+      
+      ctx.fillRect(x, 0, lineWidth, canvas.height);
+    }
+    
+    ctx.restore();
+  }
+  
   // Draw tribal cursor (fixed color, no chord-based changes)
   drawTribalCursor(mouseX, mouseY);
   
@@ -765,6 +824,9 @@ function updateParams(x, y) {
   // Set granular synthesis volume based on position
   const granularVolume = map(x, 0, rect.width, 0.1, 1.0);
   granularSynth.setVolume(granularVolume);
+  
+  // Calculate granular intensity for visuals (0-1)
+  granularIntensity = map(x, 0, rect.width, 0, 1);
 
   // Map Y position to LFO parameters (left axis)
   const lfoFrequency = map(y, 0, rect.height, 0.1, 15);
@@ -772,6 +834,9 @@ function updateParams(x, y) {
 
   const lfoDepth = map(y, 0, rect.height, 0, 1);
   volumeLFO.amplitude.value = lfoDepth;
+  
+  // Calculate LFO intensity for visuals (0-1)
+  lfoIntensity = map(y, 0, rect.height, 0, 1);
 }
 
 // Handle window resize
