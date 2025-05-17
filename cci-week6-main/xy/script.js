@@ -40,7 +40,7 @@ let waveforms = [];
 // Create a reverb effect
 const reverb = new Tone.Reverb({
   decay: 4,
-  wet: 0.6
+  wet: 0.5  // Reduced from 0.6
 }).toDestination();
 
 // Create a polyphonic FM synth for playing chords
@@ -65,11 +65,13 @@ const synth = new Tone.PolySynth(Tone.FMSynth).set({
     sustain: 0.2,
     release: 0.1
   }
+}).set({
+  volume: -3  // Slightly reduced volume
 });
 
-// Create a synth for arpeggios with a lighter sound
+// Create a synth for arpeggios with a lighter sound - trance style
 const arpeggioSynth = new Tone.FMSynth({
-  harmonicity: 2,
+  harmonicity: 1.5,
   modulationIndex: 10,
   oscillator: {
     type: "sine"
@@ -77,8 +79,8 @@ const arpeggioSynth = new Tone.FMSynth({
   envelope: {
     attack: 0.01,
     decay: 0.2,
-    sustain: 0.1,
-    release: 0.8
+    sustain: 0.2,
+    release: 1.2 // Extended release
   },
   modulation: {
     type: "triangle"
@@ -87,10 +89,10 @@ const arpeggioSynth = new Tone.FMSynth({
     attack: 0.01,
     decay: 0.1,
     sustain: 0.2,
-    release: 0.5
+    release: 0.8
   }
 }).set({
-  volume: -8 // Quieter than the main synth
+  volume: -6 // Quieter than the main synth
 });
 
 // Create percussion sounds
@@ -127,17 +129,19 @@ const hiPercussion = new Tone.MetalSynth({
   volume: -12
 });
 
-// Create a bass synth with a deeper sound
+// Create a bass synth with a deeper sound and longer sustain for trance feel
 const synthBass = new Tone.Synth({
   oscillator: {
     type: "triangle"
   },
   envelope: {
-    attack: 0.01,
-    decay: 0.3,
-    sustain: 0.1,
-    release: 1
+    attack: 0.02,
+    decay: 0.2,
+    sustain: 0.8,  // Increased from 0.1 for longer sustain
+    release: 2.5   // Increased from 1 for longer release
   }
+}).set({
+  volume: -12  // Significantly reduced volume
 });
 
 // Set tempo slower for longer chords
@@ -291,14 +295,14 @@ class GranularSynthesis {
 const granularSynth = new GranularSynthesis();
 granularSynth.connect(reverb);
 
-// Left-axis effect: LFO for volume modulation
+// Left-axis effect: LFO for volume modulation - gentler for trance
 const volumeGain = new Tone.Gain(1);
 const volumeLFO = new Tone.LFO({
-  type: "square",
+  type: "sine", // Changed from "square" to "sine" for smoother trance feel
   frequency: 1,
-  min: 0,
-  max: 1,
-  amplitude: 1,
+  min: 0.4,    // Changed from 0 to 0.4 for less extreme volume drops
+  max: 0.9,    // Changed from 1 to 0.9 to prevent too loud peaks
+  amplitude: 0.6, // Reduced from 1 for a gentler effect
 }).start();
 volumeLFO.connect(volumeGain.gain);
 
@@ -355,7 +359,7 @@ function setupAudio() {
     }
   }, "1m");
 
-  // Bass pattern
+  // Bass pattern with longer notes for trance feel
   Tone.Transport.scheduleRepeat(time => {
     const measure = Math.floor(Tone.Transport.position.split(':')[0]) % 8;
     let bassNote;
@@ -374,11 +378,12 @@ function setupAudio() {
       bassNote = bassNotes[5]; // Fourth chord second half
     }
     
-    synthBass.triggerAttackRelease(bassNote, "8n", time);
+    // Use longer bass notes for classic trance feel
+    synthBass.triggerAttackRelease(bassNote, "2n", time); // Changed from "8n" to "2n" for half note duration
     triggerVisualBass();
-  }, "4n");
+  }, "2n"); // Changed from "4n" to "2n" to trigger less frequently
 
-  // Arpeggiator pattern
+  // Arpeggiator pattern - FIX - reversed order for descending arpeggio
   Tone.Transport.scheduleRepeat(time => {
     const measure = Math.floor(Tone.Transport.position.split(':')[0]) % 8;
     const sixteenth = parseInt(Tone.Transport.position.split(':')[2]);
@@ -401,7 +406,11 @@ function setupAudio() {
     // Get the current chord and play a descending note
     const currentChord = chordProgression[chordIndex];
     const noteIndex = sixteenth % 3;
-    const noteToPlay = currentChord[2 - noteIndex]; // Descending order
+    
+    // IMPORTANT FIX: Reverse the order to play descending
+    // Since the chord format is already ordered high to low,
+    // we DIRECTLY use the index for descending (not reversed)
+    const noteToPlay = currentChord[noteIndex]; 
     
     arpeggioSynth.triggerAttackRelease(noteToPlay, "32n", time);
     triggerVisualArpeggio(noteToPlay);
@@ -531,7 +540,9 @@ function triggerVisualArpeggio(note) {
     color: chordColors[currentChordIndex].accent,
     decay: 0.92,
     speed: 0.8,
-    alpha: 0.5
+    alpha: 0.5,
+    blur: true,
+    blurAmount: 5
   });
 }
 
@@ -774,6 +785,8 @@ function togglePlayback() {
       
       // Hide default cursor when audio starts
       pad.style.cursor = 'none';
+    }).catch(error => {
+      console.error("Error starting audio:", error);
     });
   } else {
     // Subsequent clicks - toggle playback
@@ -795,19 +808,6 @@ function togglePlayback() {
   }
 }
 
-// Handle mouse events
-pad.addEventListener('click', (e) => {
-  togglePlayback();
-});
-
-pad.addEventListener('mousemove', (e) => {
-  const rect = pad.getBoundingClientRect();
-  mouseX = clamp(e.clientX - rect.left, 0, rect.width);
-  mouseY = clamp(e.clientY - rect.top, 0, rect.height);
-  
-  updateParams(mouseX, mouseY);
-});
-
 // Update parameters based on XY position
 function updateParams(x, y) {
   const rect = pad.getBoundingClientRect();
@@ -822,7 +822,7 @@ function updateParams(x, y) {
   granularSynth.setPlaybackRate(playbackRate);
   
   // Set granular synthesis volume based on position
-  const granularVolume = map(x, 0, rect.width, 0.1, 1.0);
+  const granularVolume = map(x, 0, rect.width, 0.1, 0.6); // Reduced maximum from 1.0 to 0.6
   granularSynth.setVolume(granularVolume);
   
   // Calculate granular intensity for visuals (0-1)
@@ -832,12 +832,25 @@ function updateParams(x, y) {
   const lfoFrequency = map(y, 0, rect.height, 0.1, 15);
   volumeLFO.frequency.value = lfoFrequency;
 
-  const lfoDepth = map(y, 0, rect.height, 0, 1);
+  const lfoDepth = map(y, 0, rect.height, 0, 0.7); // Reduced from 0-1 to 0-0.7
   volumeLFO.amplitude.value = lfoDepth;
   
   // Calculate LFO intensity for visuals (0-1)
   lfoIntensity = map(y, 0, rect.height, 0, 1);
 }
+
+// Handle mouse events
+pad.addEventListener('click', (e) => {
+  togglePlayback();
+});
+
+pad.addEventListener('mousemove', (e) => {
+  const rect = pad.getBoundingClientRect();
+  mouseX = clamp(e.clientX - rect.left, 0, rect.width);
+  mouseY = clamp(e.clientY - rect.top, 0, rect.height);
+  
+  updateParams(mouseX, mouseY);
+});
 
 // Handle window resize
 window.addEventListener('resize', resizeCanvas);
