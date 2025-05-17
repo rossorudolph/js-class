@@ -1,0 +1,26 @@
+body {
+    font-family: Arial, sans-serif;
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  
+  button {
+    padding: 10px 15px;
+    margin: 5px;
+  }
+  
+  .container {
+    border: 1px solid #ccc;
+    padding: 20px;
+    margin-top: 20px;
+  }
+  
+  .controls {
+    margin: 20px 0;
+  }
+  
+  label {
+    display: inline-block;
+    width: 80px;
+  }

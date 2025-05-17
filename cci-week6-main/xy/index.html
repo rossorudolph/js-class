@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Granular XY Pad Synth</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="xy-pad">
+    <canvas id="visualizer"></canvas>
+    <div id="cursor"></div>
+    
+    <div class="axis-labels">
+      <div class="x-axis-label">Granular Synthesis</div>
+      <div class="y-axis-label">Volume LFO</div>
+    </div>
+    
+    <div class="corner-labels">
+      <div class="corner-label top-left">Slow Pulse</div>
+      <div class="corner-label top-right">Small Grains</div>
+      <div class="corner-label bottom-left">Fast Pulse</div>
+      <div class="corner-label bottom-right">Large Grains</div>
+    </div>
+  </div>
+  
+  <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cello Synth Sequencer with XY Effects</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Cello Synth Sequencer with XY Effects</h1>
+  
+  <div class="container">
+    <div class="controls">
+      <button id="start-button">Start Audio</button>
+      <button id="play-button" disabled>Play</button>
+      <button id="stop-button" disabled>Stop</button>
+      <button id="clear-button" disabled>Clear All</button>
+    </div>
+    
+    <div class="effect-container">
+      <div class="pad-container">
+        <h2>XY Effect Controller</h2>
+        <div class="param-labels">
+          <div>Slow LFO</div>
+          <div>Fast LFO</div>
+        </div>
+        <div id="xy-pad" class="xy-pad">
+          <div id="dot" class="dot"></div>
+        </div>
+        <div class="xy-labels">
+          <div>Low Vibrato</div>
+          <div>High Vibrato</div>
+        </div>
+        
+        <div class="param-display">
+          <div class="param-value">
+            <div class="param-name">Vibrato Depth</div>
+            <div id="vibrato-depth" class="value">0.00</div>
+          </div>
+          <div class="param-value">
+            <div class="param-name">Vibrato Freq</div>
+            <div id="vibrato-freq" class="value">0.00</div>
+          </div>
+          <div class="param-value">
+            <div class="param-name">LFO Freq</div>
+            <div id="lfo-freq" class="value">0.00</div>
+          </div>
+          <div class="param-value">
+            <div class="param-name">LFO Depth</div>
+            <div id="lfo-depth" class="value">0.00</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="sequencer-container">
+        <h2>Interactive Sequencer</h2>
+        <div class="note-labels">
+          <div>A3</div>
+          <div>G3</div>
+          <div>E3</div>
+          <div>D3</div>
+          <div>C3</div>
+          <div>Bass</div>
+        </div>
+        <div id="sequencer" class="sequencer">
+          <!-- This will be populated by JS -->
+        </div>
+      </div>
+    </div>
+    
+    <div class="info">
+      <h3>How to Use:</h3>
+      <p>1. Click <strong>Start Audio</strong> to initialize the audio engine.</p>
+      <p>2. <strong>Click on squares in the sequencer grid</strong> to add or remove notes in the pattern.</p>
+      <p>3. Use the XY pad to control effects:</p>
+      <ul>
+        <li><strong>X-axis:</strong> Controls vibrato depth and frequency</li>
+        <li><strong>Y-axis:</strong> Controls volume LFO frequency and depth</li>
+      </ul>
+      <p>4. Click <strong>Play</strong> to start the sequence, <strong>Stop</strong> to pause it.</p>
+      <p>5. The bottom row controls the bass drum pattern.</p>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
