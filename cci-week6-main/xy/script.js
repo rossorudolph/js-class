@@ -92,7 +92,7 @@ const arpeggioSynth = new Tone.FMSynth({
     release: 0.8
   }
 }).set({
-  volume: -6 // Quieter than the main synth
+  volume: -8 // Quieter than the main synth
 });
 
 // Create percussion sounds
@@ -776,6 +776,18 @@ function togglePlayback() {
     // First click - initialize audio
     Tone.start().then(() => {
       console.log("Audio is ready");
+      
+      // Fix for web version - reduce overall volume
+      Tone.Destination.volume.value = -6;
+      
+      // Fix for web version - adjust LFO to be less intense
+      volumeLFO.min = 0.5;  // Higher min to prevent silence
+      volumeLFO.max = 0.8;  // Lower max to prevent peaks
+      volumeLFO.amplitude.value = 0.4; // Less modulation
+      
+      // Reduce granular synthesis volume for web version
+      granularSynth.setVolume(0.3);
+      
       setupAudio();
       initVisuals();
       audioStarted = true;
