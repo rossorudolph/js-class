@@ -6,23 +6,79 @@
   <title>Granular XY Pad Synth</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
   <link rel="stylesheet" href="style.css">
+  <style>
+    /* Add styles to ensure no vertical stripes appear */
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      width: 100vw;
+      background-color: #000000;
+      font-family: 'Courier New', monospace;
+    }
+
+    #xy-pad {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background-color: #000000;
+      position: relative;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    #visualizer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* Create a thin elegant border around the edge of the window */
+    #xy-pad::after {
+      content: '';
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      bottom: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      pointer-events: none;
+      z-index: 20;
+    }
+    
+    #start-button {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 100;
+      padding: 15px 30px;
+      font-size: 18px;
+      background-color: #333;
+      color: #fff;
+      border: 2px solid #666;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    
+    #start-button:hover {
+      background-color: #444;
+    }
+  </style>
 </head>
 <body>
   <div id="xy-pad">
     <canvas id="visualizer"></canvas>
-    <div id="cursor"></div>
-    
-    <div class="axis-labels">
-      <div class="x-axis-label">Granular Synthesis</div>
-      <div class="y-axis-label">Volume LFO</div>
-    </div>
-    
-    <div class="corner-labels">
-      <div class="corner-label top-left">Slow Pulse</div>
-      <div class="corner-label top-right">Small Grains</div>
-      <div class="corner-label bottom-left">Fast Pulse</div>
-      <div class="corner-label bottom-right">Large Grains</div>
-    </div>
+    <button id="start-button">Start Audio</button>
   </div>
   
   <script src="script.js"></script>

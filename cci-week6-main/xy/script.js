@@ -19,6 +19,18 @@ let mouseX = 0;
 let mouseY = 0;
 let currentChordIndex = 0;
 
+// Add person position state variables
+let personX = 0;
+let personY = 0;
+
+// Track which arrow keys are currently pressed
+let keysPressed = {
+  ArrowUp: false,
+  ArrowDown: false,
+  ArrowLeft: false,
+  ArrowRight: false
+};
+
 // Effect intensity parameters that will influence visuals
 let granularIntensity = 0;
 let lfoIntensity = 0;
@@ -584,61 +596,64 @@ function triggerVisualPercussion(isLow) {
 
 // Draw tribal cursor with fixed color
 function drawTribalCursor(x, y) {
+  // This function is now deprecated in favor of drawPersonFigure
+  // Keeping it for compatibility
+  drawPersonFigure(x, y);
+}
+
+// Draw a tiny person figure instead of cursor
+function drawPersonFigure(x, y) {
   ctx.save();
   
   // Draw main shape
   ctx.translate(x, y);
-  ctx.globalAlpha = 0.8;
+  ctx.globalAlpha = 0.9;
   
-  // Fixed colors for tribal cursor
-  const cursorColor = {
+  // Person colors
+  const personColor = {
     main: '#e0e0e0',
-    accent: '#808080'
+    secondary: '#a0a0a0'
   };
   
-  // Outer subtle glow
-  const gradient = ctx.createRadialGradient(0, 0, 5, 0, 0, 25);
-  gradient.addColorStop(0, 'rgba(220, 220, 220, 0.3)');
+  // Subtle glow around the person
+  const gradient = ctx.createRadialGradient(0, 0, 5, 0, 0, 20);
+  gradient.addColorStop(0, 'rgba(220, 220, 220, 0.2)');
   gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
   
   ctx.beginPath();
   ctx.fillStyle = gradient;
-  ctx.arc(0, 0, 25, 0, Math.PI * 2);
+  ctx.arc(0, 0, 20, 0, Math.PI * 2);
   ctx.fill();
   
-  // Tribal symbol pattern
-  ctx.strokeStyle = cursorColor.main;
+  // Draw person figure
+  ctx.strokeStyle = personColor.main;
+  ctx.fillStyle = personColor.main;
   ctx.lineWidth = 1.5;
-  ctx.globalAlpha = 0.9;
   
-  // Draw tribal symbol (more organic, less crosshair-like)
+  // Head
   ctx.beginPath();
+  ctx.arc(0, -10, 5, 0, Math.PI * 2);
+  ctx.fill();
   
-  // Three curved lines forming a tribal symbol
-  for (let i = 0; i < 3; i++) {
-    const angle = (i / 3) * Math.PI * 2;
-    const startAngle = angle;
-    const endAngle = angle + Math.PI * 0.5;
-    
-    ctx.moveTo(Math.cos(startAngle) * 8, Math.sin(startAngle) * 8);
-    
-    // Control point for the curve
-    const cpX = Math.cos(startAngle + Math.PI * 0.25) * 15;
-    const cpY = Math.sin(startAngle + Math.PI * 0.25) * 15;
-    
-    ctx.quadraticCurveTo(cpX, cpY, Math.cos(endAngle) * 8, Math.sin(endAngle) * 8);
-  }
-  
-  // Add a small circle in the center
-  ctx.arc(0, 0, 3, 0, Math.PI * 2);
-  
+  // Body
+  ctx.beginPath();
+  ctx.moveTo(0, -5);
+  ctx.lineTo(0, 5);
   ctx.stroke();
   
-  // Small dot in center
-  ctx.fillStyle = cursorColor.accent;
+  // Arms
   ctx.beginPath();
-  ctx.arc(0, 0, 2, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.moveTo(-7, 0);
+  ctx.lineTo(7, 0);
+  ctx.stroke();
+  
+  // Legs
+  ctx.beginPath();
+  ctx.moveTo(0, 5);
+  ctx.lineTo(-5, 15);
+  ctx.moveTo(0, 5);
+  ctx.lineTo(5, 15);
+  ctx.stroke();
   
   ctx.restore();
 }
@@ -790,6 +805,7 @@ function togglePlayback() {
       
       setupAudio();
       initVisuals();
+      setupPersonControls(); // Initialize keyboard controls for person
       audioStarted = true;
       isPlaying = true;
       Tone.Transport.start();
@@ -856,13 +872,84 @@ pad.addEventListener('click', (e) => {
   togglePlayback();
 });
 
-pad.addEventListener('mousemove', (e) => {
+// Function for mouse movement (will be replaced with keyboard controls)
+function onMouseMove(e) {
   const rect = pad.getBoundingClientRect();
   mouseX = clamp(e.clientX - rect.left, 0, rect.width);
   mouseY = clamp(e.clientY - rect.top, 0, rect.height);
   
   updateParams(mouseX, mouseY);
-});
+}
+
+// Initial setup of mouse controls
+pad.addEventListener('mousemove', onMouseMove);
+
+// Setup keyboard controls for person figure
+function setupPersonControls() {
+  console.log("Setting up keyboard controls for person");
+  
+  // Remove the mousemove event listener
+  pad.removeEventListener('mousemove', onMouseMove);
+  
+  // Initialize position to center
+  personX = canvas.width / 2;
+  personY = canvas.height / 2;
+  
+  // Set up keyboard listeners
+  window.addEventListener('keydown', function(e) {
+    // Update key state
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      keysPressed[e.key] = true;
+      console.log(e.key + " pressed");
+      e.preventDefault();
+    }
+  });
+  
+  window.addEventListener('keyup', function(e) {
+    // Update key state
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      keysPressed[e.key] = false;
+      console.log(e.key + " released");
+      e.preventDefault();
+    }
+  });
+  
+  // Start person movement loop
+  movePerson();
+}
+
+// Function to handle person movement
+function movePerson() {
+  if (isPlaying) {
+    const moveSpeed = 8;
+    
+    // Apply vertical movement
+    if (keysPressed.ArrowUp) {
+      personY = Math.max(0, personY - moveSpeed);
+    }
+    if (keysPressed.ArrowDown) {
+      personY = Math.min(canvas.height, personY + moveSpeed);
+    }
+    
+    // Apply horizontal movement
+    if (keysPressed.ArrowLeft) {
+      personX = Math.max(0, personX - moveSpeed);
+    }
+    if (keysPressed.ArrowRight) {
+      personX = Math.min(canvas.width, personX + moveSpeed);
+    }
+    
+    // Update audio parameters
+    updateParams(personX, personY);
+    
+    // Also update mouse coordinates for compatibility
+    mouseX = personX;
+    mouseY = personY;
+  }
+  
+  // Continue movement loop
+  requestAnimationFrame(movePerson);
+}
 
 // Handle window resize
 window.addEventListener('resize', resizeCanvas);
